@@ -1,0 +1,5 @@
+# Additional pins for this machine; setup.py still pins mjlab/mujoco-warp.
+# Install torch from https://download.pytorch.org/whl/cu126 first.
+torch==2.7.1
+warp-lang==1.12.0
+mujoco==3.5.0
