@@ -45,9 +45,11 @@ bash scripts/sim2sim.sh --headless --steps 2000 --check
 ## A2 sim2real
 
 `deploy/robots/a2/` 使用现有 C++/DDS 控制器运行 EDU actor。
-该目录下的 `config/policy/velocity/v0/exported/policy.onnx` 为已导出的网络。
-`params/deploy.yaml` 已适配 EDU 观测、历史、关节顺序、PD 和动作处理。
-关节到电机 ID 的对应、状态机、导出及运行方法见 [sim2real 文档](doc/sim2real.md)。
+在 `edu_rl_lab` 中运行 `play` 自动导出 ONNX，然后手动将 `policy.onnx` 复制到
+`networks/01_EDU_A2_STAIR/` 等策略目录。在 `deploy/robots/a2/config/deploy.yaml`
+中修改 `policy_dir` 选择目录；控制器只读取 ONNX，不转换检查点。`deploy/robots/a2/config/deploy.yaml`
+保存 EDU 观测、历史、关节顺序、PD 和动作处理配置。
+NX (a2) 上的复制及运行方法见 [sim2real 文档](doc/sim2real.md)。
 
 ```bash
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
@@ -59,6 +61,13 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 离线工具用合成传感器数据对比实际 C++ 观测、ONNX 推理和动作处理与 Python 输出，
 不创建 DDS 通道。本次未验证实机行走或 C++ DDS 仿真行走。
 SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
+手柄输入保持 SDK `UnitreeJoystick` 的默认按键映射和滤波设置。
+控制器启动后用 2 秒自动移动至固定站姿。**Start** 切换固定站姿 / 策略模式，
+**A** 切换至较低的固定姿态；低姿态下先按 Start 返回正常站姿，再按 Start 进入策略模式。
+**R1 / L1** 增加 / 降低线速度倍率，**R2 / L2** 增加 / 降低角速度倍率。
+每次按下变化 0.1，初始 0.5，范围 0–1，可在 `deploy.yaml` 中修改。
+同时按 **R1 + R2** 退出 `a2_ctrl`：停止策略，发送约 100 ms Passive 阻尼，再结束控制器。
+退出操作优先于速度增加。
 
 ## 实机关节映射检查
 
@@ -67,14 +76,13 @@ SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
 同时显示预期关节名称和 SDK 电机 ID。Space 先复位当前关节再进入下一个；
 Q / Esc / Ctrl-C 发送 Passive 阻尼命令并退出。
 此工具没有平衡控制，执行时须支撑或悬吊机器人。
-安装、操作及离线预览见[关节检查文档](doc/real_joint_test.md)。
+安装与操作见[关节检查文档](doc/real_joint_test.md)。
 
 ```bash
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
-./deploy/robots/a2/build/real_joint_test --dry-run
-# 将 YOUR_ROBOT_NIC 替换为机器人 Ethernet 接口，并先停止其他控制器。
-./deploy/robots/a2/build/real_joint_test --network YOUR_ROBOT_NIC
+# 在 deploy/robots/a2/config/config.yaml 中设置 network.interface，并先停止其他控制器。
+./deploy/robots/a2/build/real_joint_test
 ```
 
 该工具无需 Python、Conda 或 ONNX Runtime。

@@ -5,6 +5,8 @@
 #include "FSM/BaseState.h"
 #include "isaaclab/devices/keyboard/keyboard.h"
 #include "unitree_joystick_dsl.hpp"
+#include "a2_controls.h"
+#include <atomic>
 
 class FSMState : public BaseState
 {
@@ -13,6 +15,10 @@ public:
     : BaseState(state, state_string) 
     {
         spdlog::info("Initializing State_{} ...", state_string);
+
+        // A latched shutdown takes precedence over every normal button transition.
+        safety_checks.emplace_back(
+            [] { return shutdown_requested.load(); }, FSMStringMap.right.at("Passive"));
 
         auto transitions = param::config["FSM"][state_string]["transitions"];
 
@@ -45,7 +51,7 @@ public:
         }
 
         // register for all states
-        registered_checks.emplace_back(
+        safety_checks.emplace_back(
             std::make_pair(
                 []()->bool{ return lowstate->isTimeout(); },
                 FSMStringMap.right.at("Passive")
@@ -56,7 +62,22 @@ public:
     void pre_run()
     {
         lowstate->update();
+        if (a2_controls::shutdown_requested(lowstate->joystick))
+            shutdown_requested.store(true);
+        if (speed_control && !shutdown_requested.load()) {
+            unitree::common::REMOTE_DATA_RX remote{};
+            {
+                std::lock_guard<std::mutex> lock(lowstate->mutex_);
+                std::memcpy(&remote, lowstate->msg_.wireless_remote().data(), sizeof(remote));
+            }
+            const bool exit_buttons = remote.RF_RX.btn.components.R1 && remote.RF_RX.btn.components.R2;
+            if (speed_control->update(lowstate->joystick, exit_buttons)) {
+                const auto scales = speed_control->scales();
+                spdlog::info("Speed scale: linear {:.1f}, angular {:.1f}", scales[0], scales[1]);
+            }
+        }
         if(keyboard) keyboard->update();
+        lowcmd->lock();
     }
 
     void post_run()
@@ -67,4 +88,6 @@ public:
     static std::unique_ptr<LowCmd_t> lowcmd;
     static std::shared_ptr<LowState_t> lowstate;
     static std::shared_ptr<Keyboard> keyboard;
+    inline static std::atomic<bool> shutdown_requested{false};
+    inline static std::unique_ptr<a2_controls::SpeedControl> speed_control;
 };

@@ -15,6 +15,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <memory>
 #include <iomanip>
+#include "policy_bundle.h"
 
 /* ---------- logger ---------- */
 namespace spdlog
@@ -41,8 +42,10 @@ namespace param
 inline std::string VERSION = "1.0.0.1";
 inline std::filesystem::path bin_path;
 inline std::filesystem::path proj_dir;
+inline std::filesystem::path repo_dir;
 inline std::filesystem::path config_dir;
 inline YAML::Node config;
+inline YAML::Node deploy_config;
 
 inline std::filesystem::path get_bin_path() {
     std::vector<char> path(1024);
@@ -71,6 +74,8 @@ inline void load_config_file()
         config_dir = proj_dir;
     }
 
+    repo_dir = proj_dir.parent_path().parent_path().parent_path();
+
     try {
         std::string config_file = (config_dir / "config.yaml").string();
         if(std::filesystem::exists(config_file))
@@ -85,34 +90,17 @@ inline void load_config_file()
 
 inline std::filesystem::path parser_policy_dir(std::filesystem::path policy_dir)
 {
-    // Load Policy
-    if (policy_dir.is_relative()) {
-        policy_dir = param::proj_dir / policy_dir;
-    }
-
-    // If there is no `exported` folder in this folder,
-    // then sort all the folders under this folder and take the last folder
-    if (!std::filesystem::exists(policy_dir / "exported")) {
-        auto dirs = std::filesystem::directory_iterator(policy_dir);
-        std::vector<std::filesystem::path> dir_list;
-        for (const auto& entry : dirs) {
-            if (entry.is_directory()) {
-                dir_list.push_back(entry.path());
-            }
-        }
-        if (!dir_list.empty()) {
-            std::sort(dir_list.begin(), dir_list.end());
-            // Check if there is an `exported` folder starting from the last folder
-            for (auto it = dir_list.rbegin(); it != dir_list.rend(); ++it) {
-                if (std::filesystem::exists(*it / "exported")) {
-                    policy_dir = *it;
-                    break;
-                }
-            }
-        }
-    }
+    policy_dir = policy_bundle::resolve(repo_dir, policy_dir);
     spdlog::info("Policy directory: {}", policy_dir.string());
     return policy_dir;
+}
+
+inline void load_deploy_config()
+{
+    deploy_config = YAML::LoadFile((config_dir / "deploy.yaml").string());
+    const auto directory = deploy_config["policy_dir"];
+    if (!directory.IsScalar() || directory.as<std::string>().empty())
+        throw std::runtime_error("deploy.yaml must define policy_dir as a nonempty folder path");
 }
 
 /* ---------- Command Line Parameters ---------- */
@@ -129,7 +117,8 @@ inline po::variables_map helper(int argc, char** argv)
         ("help,h", "produce help message")
         ("version,v", "show version")
         ("log", "record log file")
-        ("network,n", po::value<std::string>()->default_value(""), "dds network interface")
+        ("network,n", po::value<std::string>(), "override config.yaml network.interface")
+        ("check-policy", "validate the copied ONNX policy, then exit without DDS")
         ;
 
     po::variables_map vm;

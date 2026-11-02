@@ -1,132 +1,212 @@
-# EDU A2 → Unitree C++ deployment
+# A2 sim2real: NX (a2) 실기 실행
 
-`deploy/robots/a2/`는 EDU A2 actor를 기존 Unitree C++ 배포 흐름에 연결한다.
-입력과 출력 처리는 기존 `BaseArticulation`, `ObservationManager`, `ActionManager`,
-`OrtRunner`를 사용하며, Passive → FixStand → Velocity 상태 전환과 DDS 통신을 유지한다.
-실제 로봇 연결이나 모터 명령 전송은 수행하지 않았다. 아래 검증은 모두 오프라인이다.
+**NX (a2)**는 A2 로봇 내장 PC다. Ubuntu와 ROS 2 Humble이 설치된 NX (a2)에서
+아래 명령을 순서대로 실행한다. 작업 경로는 `~/control_ws`다.
 
-## 정책 파일
+## 1. 실행 환경
 
-- 원본: `networks/01_EDU_A2_STAIR/model_10001.pt`
-- 실행 모델: `deploy/robots/a2/config/policy/velocity/v0/exported/policy.onnx`
-- 실행 설정: 같은 `v0/params/deploy.yaml`
-- 출처 및 파일 해시: 같은 `v0/exported/manifest.json`
-
-ONNX에는 actor만 들어 있다. 고정 입력 `obs: [1, 225]`, 출력 `actions: [1, 12]`,
-float32, opset 17이며 출력은 EDU 순서의 raw action이다.
-관측 정규화나 관절 재배열을 ONNX 내부에 추가하지 않았다.
-
-내보낸 파일은 포함되어 있다. 체크포인트를 교체할 때는 다음을 실행한다.
-같은 관측·관절·네트워크 구조의 EDU 체크포인트를 사용해야 한다.
+C++ Unitree SDK2와 ONNX Runtime으로 제어기를 실행한다.
+필요한 빌드 도구는 CMake, C++ 컴파일러, Boost, yaml-cpp이며 ONNX Runtime은 저장소에 포함되어 있다.
 
 ```bash
-conda activate mjlab
-cd /home/lim/rl_ws/unitree_rl_mjlab
-# onnx 패키지가 없는 환경은 먼저 python -m pip install -e '.[export]'
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/export_sim2real.py
-# 또는 --checkpoint networks/다른_실행/model.pt
+uname -m  # aarch64 확인
+mkdir -p "$HOME/control_ws"
 ```
 
-## 관절 순서
+## 2. unitree_rl_mjlab 설치
 
-기존 mjlab 다리별 순서(FL → FR → RL → RR)를 SDK 모터 ID로 바꾸는 매핑은
-`[3, 4, 5, 0, 1, 2, 9, 10, 11, 6, 7, 8]`이었다.
-EDU 순서를 mjlab 순서에 대응시키는 인덱스
-`[0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]`와 합성했다.
-
-| EDU 인덱스 | 관절 | mjlab 인덱스 | SDK 모터 ID |
-| ---: | --- | ---: | ---: |
-| 0 | FL_hip | 0 | 3 |
-| 1 | FR_hip | 3 | 0 |
-| 2 | RL_hip | 6 | 9 |
-| 3 | RR_hip | 9 | 6 |
-| 4 | FL_thigh | 1 | 4 |
-| 5 | FR_thigh | 4 | 1 |
-| 6 | RL_thigh | 7 | 10 |
-| 7 | RR_thigh | 10 | 7 |
-| 8 | FL_calf | 2 | 5 |
-| 9 | FR_calf | 5 | 2 |
-| 10 | RL_calf | 8 | 11 |
-| 11 | RR_calf | 11 | 8 |
-
-최종 `joint_ids_map`은 `[3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8]`이다.
-센서는 `q_policy[i] = motor_state[map[i]].q`로 읽고,
-출력은 `motor_cmd[map[i]].q = target_policy[i]`로 쓴다.
-기본 자세와 action offset은 EDU 순서다. PD 배열과 FixStand의 자세 배열은 기존처럼
-SDK 순서를 사용한다. 이름과 SDK ID의 대응은 기존 설정 및 `scene_a2.xml`의
-actuator 순서로 교차 확인했으며, 실제 하드웨어에서 모터를 움직여 확인한 것은 아니다.
-
-실제 관절을 하나씩 움직여 비교하려면 [real_joint_test 사용법](real_joint_test.md)을 따른다.
-같은 `deploy.yaml` 매핑과 C++ Unitree SDK2를 사용하며,
-EDU 순서로 예상 이름과 모터 ID를 표시한다. 실행 파일은 `build/real_joint_test`다.
-
-## 관측과 제어
-
-관측 항목은 각속도 3, 중력 방향 3, 속도 명령 3, 상대 관절 위치 12,
-관절 속도 12, 이전 raw action 12다. 각 항목의 5프레임을 과거→현재 순으로 펼친 뒤
-항목 순서대로 이어 붙여 225차원을 만든다. gait phase는 제거했다.
-각 항목을 ±100으로 clip한 뒤 각속도는 0.2, 관절 속도는 0.05를 곱한다.
-초기화할 때 현재 관측을 5번 채우고 이전 raw action은 0으로 만든다.
-
-- 정책 주기: 0.02초(50 Hz). 기존 DDS/FSM 송신 주기 0.001초는 유지한다.
-- 정책 제어 PD: 모든 관절 Kp 25, Kd 0.5.
-- 목표: `clip(default_joint_pos + 0.25 * raw_action, -100, 100)`.
-- 속도 명령 범위: EDU 학습 기록대로 vx ±0.6 m/s, vy ±0.4 m/s, wz ±1.0 rad/s.
-- 조이스틱 축과 부호는 기존 그대로다. ly → vx, -lx → vy, -rx → wz이며 범위 밖 값은 clip한다.
-- 기본 자세: `[0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1, 1, -1.5, -1.5, -1.5, -1.5]`.
-
-사용자가 선택한 대로 FixStand의 마지막 자세만 EDU 기본 자세의 SDK 순서로 변경했다.
-중간 자세, 전환 시간, FixStand PD 200/5, Passive 감쇠, 버튼 조합은 유지했다.
-기존에 꺼져 있던 자세 이상 검사는 사용자 선택에 따라 복구했다.
-몸통 기울기가 1.0 rad를 넘거나 중력 방향에 비유한 값이 있으면 Passive로 전환한다.
-기존 DDS timeout 전환을 유지하고, 정책 추론 오류도 Passive 전환 조건으로 처리한다.
-
-정책 시작 직후 첫 목표가 0으로 발행되지 않도록 reset 시 offset을 적용한 목표를
-동기적으로 준비한다. 추론 스레드는 목표 배열을 짧은 lock으로 교체하고,
-1 kHz 제어 스레드는 이 배열을 읽는다. ONNX 추론 중에는 이 lock을 잡지 않는다.
-조이스틱도 센서 갱신 때 복사해 서로 다른 스레드에서 읽고 쓰는 문제를 피했다.
-
-SDK에 `KeyBase`가 없는 경우에도 기존 버튼 조합을 사용할 수 있도록 공통 버튼 상태를
-읽는 호환 처리를 추가했다. `pressed_time`이 없는 SDK에서는 hold-time 표현을
-명시적으로 거부한다. 현재 A2 버튼 설정은 hold-time을 사용하지 않는다.
-
-## 빌드와 오프라인 검증
+EDU A2 배포 코드가 포함된 저장소를 받는다. 폴더가 이미 있으면 clone을 생략한다.
 
 ```bash
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
+git clone https://github.com/achrxme-1838/unitree_rl_mjlab.git \
+  "$HOME/control_ws/unitree_rl_mjlab"
+```
+
+로컬에서 수정한 코드를 사용할 경우 해당 소스와 정책 파일도 NX (a2)에 반영한다.
+
+## 3. Unitree SDK2 설치
+
+SDK 소스를 `~/control_ws/unitree_sdk2`에 받고 `/usr/local`에 설치한다.
+SDK 폴더가 이미 있으면 clone을 생략한다.
+
+```bash
+git clone https://github.com/unitreerobotics/unitree_sdk2.git \
+  "$HOME/control_ws/unitree_sdk2"
+
+git -C "$HOME/control_ws/unitree_sdk2" checkout --detach \
+  c8a71e281093593f4dcc7bceb3b3b529ff0e36b4
+
+cmake -S "$HOME/control_ws/unitree_sdk2" \
+  -B "$HOME/control_ws/unitree_sdk2/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/usr/local \
+  -DCMAKE_INSTALL_LIBDIR=lib \
+  -DBUILD_EXAMPLES=OFF
+
+cmake --build "$HOME/control_ws/unitree_sdk2/build" -j2
+sudo cmake --install "$HOME/control_ws/unitree_sdk2/build"
+sudo ldconfig
+```
+
+설치 확인:
+
+```bash
+ls /usr/local/lib/libunitree_sdk2.a
+ls /usr/local/lib/libddsc.so* /usr/local/lib/libddscxx.so*
+ls /usr/local/include/unitree/dds_wrapper/robots/g1/g1.h
+```
+
+## 4. 정책 경로 설정
+
+개발 PC의 `edu_rl_lab`에서 `play`하면 체크포인트 폴더 아래
+`exported/<체크포인트 이름>/policy.onnx`가 생성된다.
+이 파일을 NX (a2)의 `unitree_rl_mjlab/networks/01_EDU_A2_STAIR/`에 복사해 사용한다.
+
+[deploy/robots/a2/config/deploy.yaml](../deploy/robots/a2/config/deploy.yaml)의
+`policy_dir`을 사용할 **폴더 경로**로 지정한다.
+
+```yaml
+policy_dir: networks/01_EDU_A2_STAIR/
+```
+
+상대 경로는 저장소 루트 기준이며 해당 폴더의 `policy.onnx`를 읽는다.
+정책 파일이나 설정을 바꿀 때는 제어기를 종료하고, 수정 후 다시 실행한다.
+
+## 5. C++ 빌드와 확인
+
+NX (a2)에서 빌드한다.
+
+```bash
+cd "$HOME/control_ws/unitree_rl_mjlab"
+
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
+
+ldd deploy/robots/a2/build/a2_ctrl
+ldd deploy/robots/a2/build/real_joint_test
 ctest --test-dir deploy/robots/a2/build --output-on-failure
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
+./deploy/robots/a2/build/a2_ctrl --check-policy
 ```
 
-`a2_policy_probe`는 실제 DDS 메시지 타입과 배포용 C++ 센서/관측/행동/ONNX 코드를
-사용하되 DDS 채널을 만들지 않는다. 가짜 센서 프레임 16개를 입력해 Python actor와
-비교한다. 5프레임 이력, 재진입 reset, raw action 이력, 관측 clipping,
-목표 clipping, 모든 모터 ID의 출력값을 확인한다. 잘못된 관측 크기와 NaN 입력,
-1.0 rad 자세 판정도 검사한다. 별도 C++ 테스트로 기존 버튼 조합을 확인한다.
+`ldd`에 `not found`가 없어야 하며 CTest가 통과해야 한다.
+정책 검사에서 `Policy check complete (no DDS channels opened).`가 출력되면 준비 완료다.
+위 확인 명령은 모터를 구동하지 않는다.
 
-현재 PC에서 컨트롤러 빌드, Python 테스트 12개(skip 없음), C++ 버튼 테스트 1개를 통과했다.
-C++와 Python의 최대 관측 오차는 `4.91e-8`, raw action 오차는 `4.58e-5`,
-모터 목표각 오차는 `1.15e-5 rad`였다. 결과는 `outputs/sim2real/validation.json`에 기록했다.
+## 6. 로봇과 네트워크 준비
 
-C++ probe를 빌드하지 않은 환경에서는 해당 Python 테스트 하나가 skip된다.
-실기 배포 전 검증 결과를 확인할 때는 위 빌드 명령부터 실행해 skip 없이 확인한다.
+A2를 저수준/debug 모드로 전환하고 다른 모터 제어 프로그램을 종료한다.
+관절 테스트는 균형 제어가 없으므로 로봇을 지지하거나 매단 상태에서 진행한다.
 
-## 실행 경로
-
-실행 프로그램은 `deploy/robots/a2/build/a2_ctrl`이다. 설정은 실행 파일 위치를 기준으로
-찾으므로 위 `build/` 위치를 유지한다. 다음은 사용자가 로봇에서 실행할 명령이며,
-이번 작업 중에는 실행하지 않았다.
+NX (a2)의 로봇 제어망 Ethernet 인터페이스 이름을 확인한다.
 
 ```bash
-./deploy/robots/a2/build/a2_ctrl --network=YOUR_ROBOT_NIC
+ip -br link
+ip -br addr
 ```
 
-기존 버튼 전환은 L2 + 위 → FixStand, R2 + A → Velocity,
-L2 + B → Passive다. 모델 경로는 `config/config.yaml`에서 `config/policy/velocity/v0`로
-명시해 다른 디렉터리의 모델을 자동 선택하지 않도록 했다.
+[deploy/robots/a2/config/config.yaml](../deploy/robots/a2/config/config.yaml)의
+`network.interface`에 해당 이름을 저장한다. 아래 `eth0`는 예시이며 실제 이름으로 바꾼다.
 
-`simulate/`의 DDS 시뮬레이터에는 `--network=lo`로 연결할 수 있다.
-다만 이번에는 C++ DDS 통합 주행이나 실기 보행을 검증하지 않았다.
-Python `scripts/sim2sim.py`의 검증 결과와 C++ DDS 주행 검증은 별개다.
-실제 모터 응답·토크 제한·제어 지연·보행 안정성은 이 오프라인 검증으로 확인되지 않는다.
+```yaml
+network:
+  interface: "eth0"
+```
+
+`a2_ctrl`과 `real_joint_test` 모두 이 설정을 사용한다.
+다른 인터페이스를 임시로 사용할 때만 `--network 인터페이스명`을 지정한다.
+IP 주소·넷마스크는 Ubuntu 네트워크 설정에서 로봇 제어망에 맞게 설정한다.
+이미 연결되어 있으면 기존 IP 설정을 사용한다.
+
+## 7. real_joint_test 실기 실행
+
+**연결되면 별도 시작 버튼 없이 관절이 움직인다.** `a2_ctrl`을 종료한 상태에서 실행한다.
+
+```bash
+cd "$HOME/control_ws/unitree_rl_mjlab"
+./deploy/robots/a2/build/real_joint_test
+```
+
+1. 현재 측정 자세에서 5초 동안 EDU 기본 자세로 이동한다.
+2. 관절 하나씩 ±0.05 rad, 3초 주기로 왕복한다.
+3. 터미널의 예상 관절 이름·SDK 모터 ID와 실제 움직이는 관절을 비교한다.
+4. **Space**: 현재 관절을 기본 위치로 돌린 뒤 다음 관절로 이동한다.
+5. **Q / Esc / Ctrl-C**: Passive 감쇠를 약 0.1초 보내고 종료한다. 종료하면 위치 유지가 풀린다.
+
+관절의 좌우는 로봇이 앞을 보는 기준이다. 예상과 다른 관절이 움직이면 매핑을 확인한다.
+진폭과 주기를 바꾸는 예:
+
+```bash
+./deploy/robots/a2/build/real_joint_test --amplitude 0.03 --period 4
+```
+
+전체 옵션은 [관절 테스트 사용법](real_joint_test.md)을 참고한다.
+
+## 8. a2_ctrl 정책 실행
+
+### 실행
+
+관절 테스트를 종료하고 조이스틱을 중립에 둔다.
+**제어기 연결 후 2초 동안 기본 고정 자세로 자동 기립한다.**
+
+```bash
+cd "$HOME/control_ws/unitree_rl_mjlab"
+./deploy/robots/a2/build/a2_ctrl --log
+```
+
+`Connected to robot.` 및 `FSM: Start FixStand`를 확인한다.
+로그는 `deploy/robots/a2/log/log.txt`에 저장된다.
+
+### 조이스틱
+
+| 조작 | 동작 |
+| --- | --- |
+| **제어기 실행** | 2초 동안 기본 고정 자세로 자동 기립 |
+| **Start** | 기본 고정 자세(FixStand) ↔ 정책 모드(Velocity) |
+| **A** | 기본 자세보다 몸체가 약 5cm 낮은 고정 자세(LowStand) |
+| LowStand에서 **Start** | 기본 자세로 복귀. 기립 완료 후 다시 누르면 정책 모드 |
+| **R1 / L1** | 선속도 배율 증가 / 감소 |
+| **R2 / L2** | 각속도 배율 증가 / 감소 |
+| **R1 + R2** | 모든 상태에서 Passive 감쇠 후 제어기 종료. 속도 증가보다 우선 |
+
+기본 자세로 이동하는 2초가 지난 뒤 Start를 눌러 정책 모드에 진입한다.
+고정 자세는 정책 없이 PD 제어로 유지한다.
+버튼은 누를 때마다 한 번 동작하며, 입력에는 SDK `UnitreeJoystick` 기본 처리를 사용한다.
+
+| 스틱 | 명령 | 배율 0.5에서 범위 | 배율 1.0에서 범위 |
+| --- | --- | --- | --- |
+| 왼쪽 상하 | 전후 선속도 | ±0.3 m/s | ±0.6 m/s |
+| 왼쪽 좌우 | 좌우 선속도 | ±0.2 m/s | ±0.4 m/s |
+| 오른쪽 좌우 | 회전 각속도 | ±0.5 rad/s | ±1.0 rad/s |
+
+속도 배율은 선속도·각속도 각각 **초기 0.5, 누를 때마다 ±0.1, 범위 0~1**이다.
+상태를 전환해도 유지되며 프로그램을 다시 시작하면 초기화된다. 스틱 중립에서는 이동 명령이 0이다.
+
+### 설정 변경
+
+| 파일 | 수정 항목 |
+| --- | --- |
+| [deploy.yaml](../deploy/robots/a2/config/deploy.yaml) | `policy_dir`: 정책 폴더, `commands.base_velocity.speed_control`: 속도 배율 |
+| [config.yaml](../deploy/robots/a2/config/config.yaml) | `network.interface`: 통신 인터페이스, `FSM.initial`: 시작 상태, `FixStand`·`LowStand`: 고정 자세와 이동 시간 |
+
+속도 배율 설정:
+
+```yaml
+commands:
+  base_velocity:
+    speed_control:
+      linear: {initial: 0.5, step: 0.1, min: 0.0, max: 1.0}
+      angular: {initial: 0.5, step: 0.1, min: 0.0, max: 1.0}
+```
+
+고정 자세의 `ts: [0, 2]`는 이동 시간, `qs` 마지막 배열은 목표 관절각(rad), `kp`·`kd`는 게인이다.
+`qs` 첫 항목 `[]`는 진입 시 측정 자세다. 배열 순서는 SDK 모터 순서인
+FR → FL → RR → RL, 각 다리의 hip/thigh/calf다.
+
+### 정지와 종료
+
+정책을 멈추고 자세를 유지하려면 **Start** 또는 **A**를 누른다.
+제어기를 종료하려면 **R1 + R2**를 함께 누르고 `Controller stopped.`를 확인한다.
+종료 시 Passive 감쇠(Kp 0 / Kd 10)를 약 0.1초 전송하며 위치 유지가 풀린다.
+`a2_ctrl`의 Ctrl-C에는 별도 감쇠 처리가 없으므로 R1+R2로 종료한다.

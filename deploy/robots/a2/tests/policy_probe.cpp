@@ -40,11 +40,11 @@ void load_frame(SensorFrame& sensor, const YAML::Node& frame) {
     for (int i = 0; i < 4; ++i) sensor.msg_.imu_state().quaternion()[i] = quat.at(i);
     for (int i = 0; i < 3; ++i) sensor.msg_.imu_state().gyroscope()[i] = gyro.at(i);
     auto command = frame["command"].as<std::vector<float>>();
-    sensor.joystick.ly.smooth = sensor.joystick.lx.smooth = sensor.joystick.rx.smooth = 1;
-    sensor.joystick.ly.deadzone = sensor.joystick.lx.deadzone = sensor.joystick.rx.deadzone = 0;
-    sensor.joystick.ly(command.at(0));
-    sensor.joystick.lx(-command.at(1));
-    sensor.joystick.rx(-command.at(2));
+    unitree::common::REMOTE_DATA_RX remote{};
+    remote.RF_RX.ly = command.at(0);
+    remote.RF_RX.lx = -command.at(1);
+    remote.RF_RX.rx = -command.at(2);
+    sensor.joystick.extract(remote);
 }
 
 int main(int argc, char** argv) {
@@ -53,14 +53,19 @@ int main(int argc, char** argv) {
         const auto frames = YAML::LoadFile(argv[3]);
         auto sensor = std::make_shared<SensorFrame>();
         load_frame(*sensor, frames[0]);
-        auto robot = std::make_shared<unitree::BaseArticulation<std::shared_ptr<SensorFrame>>>(sensor);
-        isaaclab::ManagerBasedRLEnv env(YAML::LoadFile(argv[1]), robot);
+        const auto cfg = YAML::LoadFile(argv[1]);
+        a2_controls::SpeedControl speed(cfg["commands"]["base_velocity"]["speed_control"]);
+        auto robot = std::make_shared<unitree::BaseArticulation<std::shared_ptr<SensorFrame>>>(
+            sensor, [&] { return speed.scales(); });
+        isaaclab::ManagerBasedRLEnv env(cfg, robot);
         auto policy = std::make_unique<RecordingPolicy>(argv[2]);
         auto* recording = policy.get();
         env.alg = std::move(policy);
         YAML::Node result;
-        for (const auto& frame : frames) {
-            load_frame(*sensor, frame);
+        for (std::size_t index = 0; index < frames.size(); ++index) {
+            const auto frame = frames[index];
+            // The constructor already consumed the first packet; filter each one once.
+            if (index != 0) load_frame(*sensor, frame);
             robot->update();
             if (frame["reset"].as<bool>(false)) env.reset();
             if (frame["override_action"]) {

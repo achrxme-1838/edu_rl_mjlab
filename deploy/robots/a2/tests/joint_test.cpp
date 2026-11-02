@@ -23,13 +23,12 @@ int main(int argc, char** argv) {
     try {
         check(argc == 2, "Supply repository root");
         const std::filesystem::path root(argv[1]);
-        const auto policy = root / "deploy/robots/a2/config/policy/velocity/v0";
-        const auto cfg = Config::load(policy / "params/deploy.yaml", root / "deploy/robots/a2/config/config.yaml");
-        const auto manifest = YAML::LoadFile((policy / "exported/manifest.json").string());
+        const auto cfg = Config::load(root / "deploy/robots/a2/config/deploy.yaml", root / "deploy/robots/a2/config/config.yaml");
+        const std::array<int, 12> expected_ids{3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8};
         const auto source = YAML::LoadFile((root / "networks/01_EDU_A2_STAIR/source_model.json").string());
         for (int i = 0; i < 12; ++i) {
-            check(joint_name(i) == manifest["policy_joint_names"][i].as<std::string>(), "Policy joint name mismatch");
-            check(cfg.motor_ids[i] == manifest["policy_to_sdk_motor_ids"][i].as<int>(), "SDK motor ID mismatch");
+            check(joint_name(i) == source["joint_names"][i].as<std::string>(), "Policy joint name mismatch");
+            check(cfg.motor_ids[i] == expected_ids[i], "SDK motor ID mismatch");
             near(cfg.default_sdk[cfg.motor_ids[i]], source["default_joint_pos"][i].as<float>());
         }
 

@@ -4,6 +4,8 @@
 #pragma once
 
 #include "isaaclab/assets/articulation/articulation.h"
+#include <functional>
+#include <array>
 
 namespace unitree
 {
@@ -23,8 +25,8 @@ template <typename LowStatePtr>
 class BaseArticulation : public isaaclab::Articulation
 {
 public:
-    BaseArticulation(LowStatePtr lowstate_)
-    : lowstate(lowstate_)
+    BaseArticulation(LowStatePtr lowstate_, std::function<std::array<float, 2>()> scales = {})
+    : lowstate(lowstate_), read_scales_(std::move(scales))
     {
         data.joystick = &joystick_snapshot;
     }
@@ -33,6 +35,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(lowstate->mutex_);
         joystick_snapshot = lowstate->joystick;
+        if (read_scales_) data.velocity_scales = read_scales_();
         // base_angular_velocity
         for(int i(0); i<3; i++) {
             data.root_ang_vel_b[i] = lowstate->msg_.imu_state().gyroscope()[i];
@@ -54,6 +57,8 @@ public:
 
     LowStatePtr lowstate;
     unitree::common::UnitreeJoystick joystick_snapshot;
+private:
+    std::function<std::array<float, 2>()> read_scales_;
 };
 
 }

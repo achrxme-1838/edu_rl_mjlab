@@ -1,4 +1,5 @@
 #include "JointTest.h"
+#include "network_config.h"
 
 #include <atomic>
 #include <boost/program_options.hpp>
@@ -9,7 +10,6 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <net/if.h>
 #include <poll.h>
 #include <termios.h>
 #include <thread>
@@ -60,18 +60,11 @@ private:
     termios saved_{};
 };
 
-class Robot {
-public:
-    virtual ~Robot() = default;
-    virtual std::optional<SensorSample> read() const = 0;
-    virtual void write(const Target& target) = 0;
-};
-
-class RealRobot : public Robot {
+class RealRobot {
 public:
     explicit RealRobot(const Config& cfg) : cfg_(cfg) {}
 
-    ~RealRobot() override {
+    ~RealRobot() {
         // This guard runs on normal exit, sensor faults, publishing errors and caught signals.
         if (started_) {
             std::cout << "\nStopping joint test (Passive damping)." << std::endl;
@@ -119,12 +112,12 @@ public:
         publisher_->InitChannel();
     }
 
-    std::optional<SensorSample> read() const override {
+    std::optional<SensorSample> read() const {
         std::lock_guard<std::mutex> lock(state_->mutex);
         return state_->sample;
     }
 
-    void write(const Target& target) override {
+    void write(const Target& target) {
         fill_command(command_, cfg_, target);
         started_ = true;
         if (!publisher_->Write(command_)) throw std::runtime_error("Failed to publish rt/lowcmd");
@@ -143,17 +136,7 @@ private:
     bool started_ = false;
 };
 
-class DryRunRobot : public Robot {
-public:
-    explicit DryRunRobot(const Config& cfg) : q_(cfg.default_sdk) {}
-    ~DryRunRobot() override { std::cout << "\nDry run stopped (no robot commands sent).\n"; }
-    std::optional<SensorSample> read() const override { return SensorSample{q_, 1, seconds()}; }
-    void write(const Target& target) override { q_ = target.q; }
-private:
-    Joints q_;
-};
-
-void run(Robot& robot, const Config& cfg, const Motion& motion, const TerminalKeys& keys) {
+void run(RealRobot& robot, const Config& cfg, const Motion& motion, const TerminalKeys& keys) {
     const auto initial = robot.read();
     check_sample(initial, seconds());
     Sequence sequence(cfg, initial->q, seconds(), motion);
@@ -195,20 +178,17 @@ int main_impl(int argc, char** argv) {
     std::string network, order, config_path, fsm_path;
     Motion motion;
     double timeout;
-    bool dry_run, print_mapping;
     po::options_description desc("A2 real joint test (C++ Unitree SDK2)");
     desc.add_options()
         ("help,h", "show usage")
-        ("network,n", po::value<std::string>(&network), "robot Ethernet interface, e.g. enp3s0")
-        ("config", po::value<std::string>(&config_path)->default_value((project / "config/policy/velocity/v0/params/deploy.yaml").string()), "policy deployment YAML")
-        ("fsm-config", po::value<std::string>(&fsm_path)->default_value((project / "config/config.yaml").string()), "FSM YAML for Passive damping")
+        ("network,n", po::value<std::string>(&network), "override config.yaml network.interface")
+        ("config", po::value<std::string>(&config_path)->default_value((project / "config/deploy.yaml").string()), "policy deployment YAML")
+        ("fsm-config", po::value<std::string>(&fsm_path)->default_value((project / "config/config.yaml").string()), "YAML for network interface and Passive damping")
         ("order", po::value<std::string>(&order)->default_value("edu"), "edu or sdk")
         ("amplitude", po::value<double>(&motion.amplitude)->default_value(0.05), "oscillation amplitude in rad (0 < value <= 0.15)")
         ("period", po::value<double>(&motion.period)->default_value(3.0), "oscillation period in seconds (>=2)")
         ("stand-duration", po::value<double>(&motion.stand_duration)->default_value(5.0), "seconds to blend to default pose (>=3)")
-        ("connect-timeout", po::value<double>(&timeout)->default_value(5.0), "LowState connection timeout in seconds (>=1)")
-        ("dry-run", po::bool_switch(&dry_run), "interactive command preview without DDS channels")
-        ("print-mapping", po::bool_switch(&print_mapping), "print the test order and exit without connecting");
+        ("connect-timeout", po::value<double>(&timeout)->default_value(5.0), "LowState connection timeout in seconds (>=1)");
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
     po::notify(vm);
@@ -218,6 +198,8 @@ int main_impl(int argc, char** argv) {
     motion.sdk_order = order == "sdk";
     if (!std::isfinite(timeout) || timeout < 1) throw std::runtime_error("--connect-timeout must be finite and >=1");
     const auto cfg = Config::load(config_path, fsm_path);
+    network = a2_network::resolve(YAML::LoadFile(fsm_path),
+        vm.count("network") ? std::make_optional(network) : std::nullopt);
     Sequence preview(cfg, cfg.default_sdk, 0, motion);
     std::cout << "Config: " << config_path << "\nOrder: " << order << "; amplitude +/-" << motion.amplitude
               << " rad; period " << motion.period << "s\n";
@@ -225,26 +207,16 @@ int main_impl(int argc, char** argv) {
     for (int policy_id : preview.order())
         std::cout << "  " << std::setw(2) << number++ << ": " << std::setw(17) << std::left << joint_label(policy_id)
                   << std::right << " | EDU " << std::setw(2) << policy_id << " -> motor " << std::setw(2) << cfg.motor_ids[policy_id] << '\n';
-    if (print_mapping) return 0;
     if (!isatty(STDIN_FILENO)) throw std::runtime_error("Run in an interactive terminal for Space / Q / Ctrl-C");
-    if (!dry_run && (network.empty() || if_nametoindex(network.c_str()) == 0))
-        throw std::runtime_error("--network must name an existing robot Ethernet interface");
     std::cout << "Space: return current joint then advance. Q / Esc / Ctrl-C: passive stop.\n";
 
-    std::unique_ptr<Robot> robot;
     TerminalKeys keys;
-    if (dry_run) {
-        std::cout << "DRY RUN: command preview only; no robot connection." << std::endl;
-        robot = std::make_unique<DryRunRobot>(cfg);
-    } else {
-        std::cout << "Support/suspend the robot; this test has no balancing policy.\n"
-                  << "The robot must already be in low-level/debug mode. Stop other controllers first.\n"
-                  << "Connecting to A2 on " << network << "; waiting for LowState..." << std::endl;
-        auto real = std::make_unique<RealRobot>(cfg);
-        real->connect(network, timeout);
-        robot = std::move(real);
-    }
-    run(*robot, cfg, motion, keys);
+    std::cout << "Support/suspend the robot; this test has no balancing policy.\n"
+              << "The robot must already be in low-level/debug mode. Stop other controllers first.\n"
+              << "Connecting to A2 on " << network << "; waiting for LowState..." << std::endl;
+    RealRobot robot(cfg);
+    robot.connect(network, timeout);
+    run(robot, cfg, motion, keys);
     return 0;
 }
 } // namespace

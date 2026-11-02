@@ -25,11 +25,13 @@ public:
     virtual void post_run() {}
 
     virtual void exit() {}
+    virtual bool can_transition_to(int) { return true; }
 
     std::string getStateString() { return FSMStringMap.left.at(state_); }
     int getState() {return state_; }
     bool isState(int state) { return state_ == state; }
     std::vector<std::pair<std::function<bool()>, int>> registered_checks;
+    std::vector<std::pair<std::function<bool()>, int>> safety_checks;
 private:
     int state_;
 };

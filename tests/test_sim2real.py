@@ -1,7 +1,6 @@
 """Check EDU -> existing C++ deployment, without creating DDS channels."""
 
 import hashlib
-import json
 import os
 import subprocess
 import tempfile
@@ -13,6 +12,8 @@ from pathlib import Path
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import numpy as np
+import mujoco
+import onnx
 import torch
 import yaml
 
@@ -24,9 +25,10 @@ from src.tasks.velocity.config.a2.env_cfgs import (
 from src.tasks.velocity.config.a2.policy import DEFAULT_CHECKPOINT, EduA2Policy
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY_DIR = ROOT / "deploy/robots/a2/config/policy/velocity/v0"
+POLICY_DIR = ROOT / "networks/01_EDU_A2_STAIR"
 PROBE = ROOT / "deploy/robots/a2/build/a2_policy_probe"
-CFG = yaml.safe_load((POLICY_DIR / "params/deploy.yaml").read_text())
+DEPLOY_CFG = ROOT / "deploy/robots/a2/config/deploy.yaml"
+CFG = yaml.safe_load(DEPLOY_CFG.read_text())
 SDK_JOINTS = [
     element.attrib["joint"]
     for element in ET.parse(ROOT / "src/assets/robots/unitree_a2/xmls/scene_a2.xml")
@@ -92,18 +94,35 @@ class DeploymentConfigTest(unittest.TestCase):
         np.testing.assert_array_equal(fsm["FixStand"]["qs"][-1], expected_sdk)
         self.assertEqual(fsm["FixStand"]["kp"], [200] * 12)
         self.assertEqual(fsm["FixStand"]["kd"], [5] * 12)
-        self.assertEqual(fsm["Velocity"]["policy_dir"], "config/policy/velocity/v0")
-        manifest = json.loads((POLICY_DIR / "exported/manifest.json").read_text())
-        for key, path in [
-            ("checkpoint_sha256", DEFAULT_CHECKPOINT),
-            ("onnx_sha256", POLICY_DIR / "exported/policy.onnx"),
-            ("deploy_yaml_sha256", POLICY_DIR / "params/deploy.yaml"),
-        ]:
-            self.assertEqual(
-                manifest[key], hashlib.sha256(path.read_bytes()).hexdigest()
-            )
-        self.assertEqual(manifest["policy_joint_names"], list(POLICY_JOINT_NAMES))
-        self.assertEqual(manifest["policy_to_sdk_motor_ids"], CFG["joint_ids_map"])
+        self.assertNotIn("policy_dir", fsm["Velocity"])
+        self.assertEqual(CFG["policy_dir"], "networks/01_EDU_A2_STAIR/")
+        model = onnx.load(str(POLICY_DIR / "policy.onnx"))
+        metadata = {item.key: item.value for item in model.metadata_props}
+        self.assertEqual(metadata["checkpoint_file"], DEFAULT_CHECKPOINT.name)
+        self.assertEqual(metadata["checkpoint_sha256"], hashlib.sha256(DEFAULT_CHECKPOINT.read_bytes()).hexdigest())
+        self.assertEqual(metadata["task"], "Edu-A2-Velocity-v0")
+        self.assertEqual(metadata["actor_obs_normalization"], "false")
+
+    def test_lowstand_lowers_body_five_cm_within_joint_limits(self):
+        fsm = yaml.safe_load(
+            (ROOT / "deploy/robots/a2/config/config.yaml").read_text()
+        )["FSM"]
+        model = mujoco.MjModel.from_xml_path(
+            str(ROOT / "src/assets/robots/unitree_a2/xmls/a2.xml")
+        )
+        data = mujoco.MjData(model)
+        feet = []
+        for state in ("FixStand", "LowStand"):
+            for name, value in zip(SDK_JOINTS, fsm[state]["qs"][-1], strict=True):
+                joint = model.joint(name)
+                self.assertGreaterEqual(value, joint.range[0])
+                self.assertLessEqual(value, joint.range[1])
+                data.qpos[joint.qposadr[0]] = value
+            mujoco.mj_forward(model, data)
+            feet.append(np.array([data.site(leg).xpos.copy() for leg in ("FR", "FL", "RR", "RL")]))
+        # Fixed base: feet rise by 5 cm without x/y motion. With feet planted,
+        # this corresponds to lowering the body by 5 cm in model kinematics.
+        np.testing.assert_allclose(feet[1] - feet[0], [[0, 0, 0.05]] * 4, atol=1e-6)
 
 
 @unittest.skipUnless(
@@ -144,8 +163,8 @@ class CppDeploymentTest(unittest.TestCase):
             subprocess.run(
                 [
                     str(PROBE),
-                    str(POLICY_DIR / "params/deploy.yaml"),
-                    str(POLICY_DIR / "exported/policy.onnx"),
+                    str(DEPLOY_CFG),
+                    str(POLICY_DIR / "policy.onnx"),
                     str(inputs),
                     str(outputs),
                 ],
@@ -163,8 +182,17 @@ class CppDeploymentTest(unittest.TestCase):
         actor = EduA2Policy()
         previous_action = np.zeros(12, dtype=np.float32)
         histories = []
+        filtered_command = np.zeros(3, dtype=np.float32)
         max_obs_error = max_action_error = max_target_error = 0.0
         for frame, actual in zip(frames, result["samples"], strict=True):
+            # SDK Axis defaults: deadzone 0.01, smoothing 0.03, applied once per packet.
+            raw_command = np.array(frame["command"], dtype=np.float32)
+            deadzone_command = np.where(np.abs(raw_command) < np.float32(0.01), 0.0, raw_command)
+            smooth = float(np.float32(0.03))
+            filtered_command = (
+                filtered_command.astype(np.float64) * (1.0 - smooth)
+                + deadzone_command.astype(np.float64) * smooth
+            ).astype(np.float32)
             if frame["reset"]:
                 previous_action.fill(0)
             if "override_action" in frame:
@@ -184,11 +212,8 @@ class CppDeploymentTest(unittest.TestCase):
                 np.clip(np.array(frame["gyro"], dtype=np.float32), -100, 100)
                 * np.float32(0.2),
                 gravity,
-                np.clip(
-                    np.array(frame["command"], dtype=np.float32),
-                    [-0.6, -0.4, -1],
-                    [0.6, 0.4, 1],
-                ).astype(np.float32),
+                (np.clip(filtered_command, -1, 1) * np.array([0.6, 0.4, 1], dtype=np.float32)
+                 * np.array([0.5, 0.5, 0.5], dtype=np.float32)),
                 np.clip(
                     np.array(frame["q_sdk"], dtype=np.float32)[ids] - pose, -100, 100
                 ),

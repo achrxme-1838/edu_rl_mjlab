@@ -51,15 +51,18 @@ settings for these checks; no training entry point uses them.
 ## A2 sim2real
 
 `deploy/robots/a2/` runs the EDU actor through the existing C++/DDS controller.
-The exported model is `config/policy/velocity/v0/exported/policy.onnx` under that
-folder. `params/deploy.yaml` matches EDU observations, history, joint order, PD,
-and action processing. See [the sim2real guide](doc/sim2real.md) for the exact
-policy-to-motor mapping, FSM settings, export commands, and runtime instructions.
+Run `play` in `edu_rl_lab` to export ONNX, then manually copy `policy.onnx` to
+`networks/01_EDU_A2_STAIR/` (or another policy folder). Set `policy_dir` in
+`deploy/robots/a2/config/deploy.yaml` to select the folder; the controller only loads ONNX and does
+not convert checkpoints. `deploy/robots/a2/config/deploy.yaml` matches EDU
+observations, history, joint order, PD, and action processing. See
+[the sim2real guide](doc/sim2real.md) for copying and running the policy on NX (a2).
 
 ```bash
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
 ctest --test-dir deploy/robots/a2/build --output-on-failure
+./deploy/robots/a2/build/a2_ctrl --check-policy
 env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 ```
 
@@ -68,6 +71,14 @@ Python using synthetic sensor frames. It opens no DDS channels. Physical robot
 walking and C++ DDS simulation rollouts have not been tested.
 
 The SDK's `g1`/`go2` namespaces are shared DDS wrappers used by A2.
+Joystick inputs retain the SDK's `UnitreeJoystick` mapping and filter defaults.
+The controller automatically moves to the fixed standing pose in 2 seconds.
+**Start** toggles fixed standing / policy; **A** selects the lower fixed pose.
+From the lower pose, Start returns to normal standing before policy can be selected.
+**R1 / L1** increase / decrease the linear speed scale; **R2 / L2** adjust the angular scale.
+Each press changes the scale by 0.1 (initial 0.5, range 0–1), configured in `deploy.yaml`.
+Press **R1 + R2** together to exit `a2_ctrl`: stop the policy, send Passive damping
+for 100 ms, then close the controller. Exit takes priority over increasing speed.
 
 ## Real joint mapping test
 
@@ -76,14 +87,13 @@ It moves to the EDU default pose, then oscillates one
 joint at a time in EDU order. It prints the expected joint name and SDK motor ID.
 Space returns the joint and advances; Q / Esc / Ctrl-C sends Passive damping and exits.
 Support or suspend the robot: this tool has no balancing policy.
-See [setup, controls, and offline preview](doc/real_joint_test.md) before running.
+See [setup and controls](doc/real_joint_test.md) before running.
 
 ```bash
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
-./deploy/robots/a2/build/real_joint_test --dry-run
-# Replace YOUR_ROBOT_NIC with the robot Ethernet interface; stop other controllers first.
-./deploy/robots/a2/build/real_joint_test --network YOUR_ROBOT_NIC
+# Set network.interface in deploy/robots/a2/config/config.yaml; stop other controllers first.
+./deploy/robots/a2/build/real_joint_test
 ```
 
 This diagnostic does not require Python, Conda, or ONNX Runtime.

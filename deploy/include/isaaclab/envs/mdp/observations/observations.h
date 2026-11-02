@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "a2_controls.h"
+
 #include "isaaclab/envs/manager_based_rl_env.h"
 
 namespace isaaclab
@@ -115,9 +117,10 @@ REGISTER_OBSERVATION(velocity_commands)
 
     const auto cfg = env->cfg["commands"]["base_velocity"]["ranges"];
 
-    obs[0] = std::clamp(joystick->ly(), cfg["lin_vel_x"][0].as<float>(), cfg["lin_vel_x"][1].as<float>());
-    obs[1] = std::clamp(-joystick->lx(), cfg["lin_vel_y"][0].as<float>(), cfg["lin_vel_y"][1].as<float>());
-    obs[2] = std::clamp(-joystick->rx(), cfg["ang_vel_z"][0].as<float>(), cfg["ang_vel_z"][1].as<float>());
+    const auto scales = env->robot->data.velocity_scales;
+    obs[0] = a2_controls::velocity_command(joystick->ly(), cfg["lin_vel_x"][0].as<float>(), cfg["lin_vel_x"][1].as<float>(), scales[0]);
+    obs[1] = a2_controls::velocity_command(-joystick->lx(), cfg["lin_vel_y"][0].as<float>(), cfg["lin_vel_y"][1].as<float>(), scales[0]);
+    obs[2] = a2_controls::velocity_command(-joystick->rx(), cfg["ang_vel_z"][0].as<float>(), cfg["ang_vel_z"][1].as<float>(), scales[1]);
 
     return obs;
 }

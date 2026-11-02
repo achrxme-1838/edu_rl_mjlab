@@ -1,4 +1,10 @@
+# Policy folder: deploy.yaml -> policy_dir.
+# R1 + R2 (SDK RB + RT): Passive damping, then exit from any state.
+network:
+  interface: "" # NX (a2) robot Ethernet interface, e.g. eth0. Set before running.
+
 FSM:
+  initial: FixStand
   _: # enabled fsms
     Passive:
       id: 1
@@ -7,24 +13,39 @@ FSM:
     Velocity:
       id: 3
       type: RLBase
+    LowStand:
+      id: 4
+      type: FixStand
   Passive:
     transitions: 
-      FixStand: LT + up.on_pressed
+      FixStand: start.on_pressed + !A
+      LowStand: A.on_pressed
     mode: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     kd: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
   FixStand:
     transitions: 
-      Passive: LT + B.on_pressed
-      Velocity: RT + A.on_pressed
+      LowStand: A.on_pressed
+      Velocity: start.on_pressed + !A
     kp: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]
     kd: [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
-    ts: [0, 1, 2]
+    ts: [0, 2]
     qs: [
       [],
-      [0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65],
       [-0.1, 0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1.0, -1.5, 0.1, 1.0, -1.5],
     ]
   Velocity:
     transitions: 
-      Passive: LT + B.on_pressed
-    policy_dir: config/policy/velocity/v0
+      FixStand: start.on_pressed + !A
+      LowStand: A.on_pressed
+  LowStand:
+    # Feet stay at the same x/y; model kinematics lower the body by about 5 cm.
+    transitions:
+      FixStand: start.on_pressed + !A
+    kp: [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]
+    kd: [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+    ts: [0, 2]
+    qs: [
+      [],
+      [-0.1141366, 0.9269101, -1.7403147, 0.1141366, 0.9269101, -1.7403147,
+       -0.1146329, 1.1493832, -1.7323059, 0.1146329, 1.1493832, -1.7323059],
+    ]
