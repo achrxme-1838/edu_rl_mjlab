@@ -1,241 +1,84 @@
-# Unitree RL Mjlab
+# Unitree A2 Mjlab
 
+This workspace runs the EDU A2 policy in MuJoCo. A2 is the only supported robot.
+Training scripts, PPO configurations, critics, rewards, and curricula have been
+removed. The A2 C++ deployment controller and its shared runtime remain available.
 
-## ✳️ Overview
-Unitree RL Mjlab is a reinforcement learning project built upon the
-[mjlab](https://github.com/mujocolab/mjlab.git), using MuJoCo as its 
-physics simulation backend, currently supporting Unitree Go2, A2, As2, G1, R1, H1_2 and H2.
+## Installation
 
-Mjlab combines [Isaac Lab](https://github.com/isaac-sim/IsaacLab)'s proven API
-with best-in-class [MuJoCo](https://github.com/google-deepmind/mujoco_warp)
-physics to provide lightweight, modular abstractions for RL robotics research
-and sim-to-real deployment.
+See [the installation guide](doc/setup_en.md). The existing local environment is `mjlab`.
 
-<div align="center">
-
-| <div align="center">  MuJoCo </div>                                                                                                                                           | <div align="center"> Physical </div>                                                                                                                                               |
-|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <div style="width:250px; height:150px; overflow:hidden;"><img src="doc/gif/g1-velocity.gif" style="width:100%; height:100%; object-fit:cover; object-position:center;"></div> | <div style="width:250px; height:150px; overflow:hidden;"><img src="doc/gif/g1-velocity-real.gif" style="width:100%; height:100%; object-fit:cover; object-position:center;"></div> |
-
-</div>
-
-
-## 📦 Installation and Configuration
-
-Please refer to [setup.md](doc/setup_en.md) for installation and configuration steps.
-
-
-## 🔁 Process Overview
-
-The basic workflow for using reinforcement learning to achieve motion control is:
-
-`Train` → `Play` → `Sim2Real`
-
-- **Train**: The agent interacts with the MuJoCo simulation and optimizes policies through reward maximization.
-- **Play**: Replay trained policies to verify expected behavior.
-- **Sim2Real**: Deploy trained policies to physical Unitree robots for real-world execution.
-
-
-## 🛠️ Usage Guide
-
-EDU A2 checkpoints can be played with `bash scripts/play_a2_edu.sh`.
-See [EDU A2 sim2sim](doc/a2_edu_sim2sim.md) for the bundled checkpoint, commands, and measured results.
-
-### 1. Velocity Tracking Training
-
-Run the following command to train a velocity tracking policy:
+## Sim2sim
 
 ```bash
-python scripts/train.py Unitree-G1-Flat --env.scene.num-envs=4096
+conda activate mjlab
+cd /home/lim/rl_ws/unitree_rl_mjlab
+bash scripts/sim2sim.sh
+bash scripts/sim2sim.sh --terrain flat
 ```
 
-Multi-GPU Training: Scale to multiple GPUs using --gpu-ids:
+The default course has five 10 cm steps, a 2 m landing, and descending steps.
+The default checkpoint is `networks/01_EDU_A2_STAIR/model_10001.pt`.
+The environment, actor loader, and rollout reporting live in
+`src/tasks/velocity/config/a2/`.
+See [configuration and measured results](doc/sim2sim.md) for observation order,
+motor settings, recording options, and known rollout limitations.
+
+The same policy is available through the registered playback tasks:
 
 ```bash
-python scripts/train.py Unitree-G1-Flat \
-  --gpu-ids 0 1 \
-  --env.scene.num-envs=4096
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/list_envs.py
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Flat
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Stairs
 ```
 
-- The first argument (e.g., Mjlab-Velocity-Flat-Unitree-G1) specifies the training task.
-Available velocity tracking tasks:
-  - Unitree-Go2-Flat
-  - Unitree-G1-Flat
-  - Unitree-G1-23Dof-Flat
-  - Unitree-H1_2-Flat
-  - Unitree-A2-Flat
-  - Unitree-R1-Flat
+Only `Unitree-A2-Flat` and `Unitree-A2-Stairs` are registered. `play.py` loads the
+actor directly; `--checkpoint-file` selects another compatible EDU checkpoint.
+`--headless --steps 200` runs a bounded check. `visualize_terrain.py` previews
+terrain with an optional A2 model.
 
-> [!NOTE]
-> For more details, refer to the mjlab documentation:
-> [mjlab documentation](https://mujocolab.github.io/mjlab/index.html).
-
-### 2. Motion Imitation Training
-
-Train a Unitree G1 to mimic reference motion sequences.
-
-<div style="margin-left: 20px;">
-
-#### 2.1 Prepare Motion Files
-
-Prepare csv motion files in mjlab/motions/g1/ and convert them to npz format:
+## Verification
 
 ```bash
-python scripts/csv_to_npz.py \
---input-file src/assets/motions/g1/dance1_subject2.csv \
---output-name dance1_subject2.npz \
---input-fps 30 \
---output-fps 50 \
---robot g1 # g1 or g1_23dof
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
+bash scripts/sim2sim.sh --headless --steps 2000 --check
 ```
 
-**npz files will be stored at:**：`src/motions/g1/...`
+`tests/` is used to check policy loading, observation history, joint mapping,
+model properties, and task registration. Reports are saved under `outputs/sim2sim/`.
+The snapshots in `networks/01_EDU_A2_STAIR/params/` record the source checkpoint's
+settings for these checks; no training entry point uses them.
 
-#### 2.2 Training
+## A2 C++ runtime
 
-After generating the NPZ file, launch imitation training:
+`deploy/robots/a2/` retains the existing ONNX deployment controller.
+`simulate/config.yaml` selects the A2 model for the DDS simulator.
+These tools require the Unitree SDK2/DDS wrapper, C++ dependencies listed in the
+installation guide, and a compatible ONNX policy with its `deploy.yaml`.
+The bundled EDU `.pt` checkpoint is loaded by the Python sim2sim tools;
+the existing C++ controller still uses its original A2 observation/action settings.
 
 ```bash
-python scripts/train.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
+cmake -S simulate -B simulate/build
+cmake --build simulate/build -j2
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+cmake --build deploy/robots/a2/build -j2
 ```
 
-Available tasks:
-  - Unitree-G1-Tracking-No-State-Estimation
-  - Unitree-G1-23Dof-Tracking-No-State-Estimation
-
-</div>
-
-> [!NOTE]
-> For detailed motion imitation instructions, refer to the BeyondMimic documentation:
-> [BeyondMimic documentation](https://github.com/HybridRobotics/whole_body_tracking/blob/main/README.md#motion-preprocessing--registry-setup).
-
-#### ⚙️  Parameter Description
-- `--env.scene`: simulation scene configuration (e.g., num_envs, dt, ground type, gravity, disturbances)
-- `--env.observations`: observation space configuration (e.g., joint state, IMU, commands, etc.)
-- `--env.rewards`: reward terms used for policy optimization
-- `--env.commands`: task commands (e.g., velocity, pose, or motion targets)
-- `--env.terminations`: termination conditions for each episode
-- `--agent.seed`: random seed for reproducibility
-- `--agent.resume`: resume from the last saved checkpoint when enabled
-- `--agent.policy`: policy network architecture configuration
-- `--agent.algorithm`: reinforcement learning algorithm configuration (PPO, hyperparameters, etc.)
-
-**Training results are stored at**：`logs/rsl_rl/<robot>_(velocity | tracking)/<date_time>/model_<iteration>.pt`
-
-### 3. Simulation Validation
-
-To visualize policy behavior in MuJoCo:
-
-Velocity tracking:
-```bash
-python scripts/play.py Unitree-G1-Flat --checkpoint_file=logs/rsl_rl/g1_velocity/2026-xx-xx_xx-xx-xx/model_xx.pt
-```
-
-Motion imitation:
-```bash
-python scripts/play.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --checkpoint_file=logs/rsl_rl/g1_tracking/2026-xx-xx_xx-xx-xx/model_xx.pt
-```
-
-**Note**：
-
-- During training, policy.onnx and policy.onnx.data are also exported for deployment onto physical robots.
-
-**Visualization**：
-
-| Go2                              | G1                             | H1_2                               | G1_mimic                          |
-|----------------------------------|--------------------------------|------------------------------------|-----------------------------------|
-| ![go2](doc/gif/go2-velocity.gif) | ![g1](doc/gif/g1-velocity.gif) | ![h1_2](doc/gif/h1_2-velocity.gif) | ![g1_mimic](doc/gif/g1-mimic.gif) |
-
-### 4. Real Deployment
-
-Before deployment, install the required communication tools:
-- [cyclonedds](https://github.com/eclipse-cyclonedds/cyclonedds.git)
-- [unitree_sdk2](https://github.com/unitreerobotics/unitree_sdk2.git)
-
-<div style="margin-left: 20px;">
-
-#### 4.1 Power On the Robot
-Start the robot in suspended state and wait until it enters `zero-torque` mode.
-
-#### 4.2 Enable Debug Mode
-While in `zero-torque` mode, press `L2 + R2` on the controller. The robot will enter `debug mode` with joint damping enabled.
-
-#### 4.3 Connect to the Robot
-Connect your PC to the robot via Ethernet. Configure the network as:
-- Address：`192.168.123.222`
-- Netmask：`255.255.255.0`
-
-Use `ifconfig` to determine the Ethernet device name for deployment.
-
-#### 4.4 Compilation
-
-Example: Unitree G1 velocity control.
-Place `policy.onnx` and `policy.onnx.data` into: `deploy/robots/g1/config/policy/velocity/v0/exported`.
-Then compile:
-
-```bash
-cd deploy/robots/g1
-mkdir build && cd build
-cmake .. && make
-```
-
-#### 4.5 Deployment
-
-## 4.5.1 Simulation Deployment
-
-Before deploying on the real robot, it is recommended to perform simulation deployment using [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco)
-to prevent abnormal behaviors on the physical robot. This framework has already integrated it.
-
-Build unitree_mujoco：
-
-```bash
-cd simulate
-mkdir build && cd build
-cmake .. && make -j8
-```
-
-Launch the simulator (note that a gamepad must be connected):
+For DDS simulation with a compatible ONNX deployment policy and a connected gamepad,
+run the simulator and controller in separate terminals:
 
 ```bash
 ./simulate/build/unitree_mujoco
+./deploy/robots/a2/build/a2_ctrl --network=lo
 ```
 
-You can select the corresponding robot in `simulate/config`
+The SDK's `g1`/`go2` namespaces still appear in shared DDS message wrappers used by
+A2. No models, tasks, or deployment targets for those robots remain.
 
-Launch the simulation control program:
+## Acknowledgements
 
-```bash
-cd deploy/robots/g1/build
-./g1_ctrl --network=lo
-```
-
-## 4.5.2 Real-Robot Deployment
-
-Launch the control program on the real robot:
-
-```bash
-cd deploy/robots/g1/build
-./g1_ctrl --network=enp5s0
-```
-
-**Arguments**：
-- `network`: The network interface used to connect to the robot. Use `lo` for simulation deployment, and `enp5s0` for the real robot(You can check it using the `ifconfig` command) 
-
-</div>
-
-**Deployment Results**：
-
-| Go2                                                    | G1                                                    | H1_2           | G1_mimic                                           |
-|--------------------------------------------------------|-------------------------------------------------------|----------------|----------------------------------------------------|
-| <img src="doc/gif/go2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-velocity-real.gif" width="300"/> | <img src="doc/gif/h1_2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-mimic-real.gif" width="300"/> |
-
-
-## 🎉  Acknowledgements
-
-This project would not be possible without the contributions of the following repositories:
-
-- [mjlab](https://github.com/mujocolab/mjlab.git): training and execution framework
-- [whole_body_tracking](https://github.com/HybridRobotics/whole_body_tracking.git): versatile humanoid motion tracking framework
-- [rsl_rl](https://github.com/leggedrobotics/rsl_rl.git): reinforcement learning algorithm implementation
-- [mujoco_warp](https://github.com/google-deepmind/mujoco_warp.git): GPU-accelerated rendering and simulation interface
-- [mujoco](https://github.com/google-deepmind/mujoco.git): high-fidelity rigid-body physics engine
+- [mjlab](https://github.com/mujocolab/mjlab): simulation framework
+- [MuJoCo Warp](https://github.com/google-deepmind/mujoco_warp): GPU simulation
+- [MuJoCo](https://github.com/google-deepmind/mujoco): physics engine
+- [Unitree SDK2](https://github.com/unitreerobotics/unitree_sdk2): robot communication

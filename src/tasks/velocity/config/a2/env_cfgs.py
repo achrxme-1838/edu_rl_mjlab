@@ -1,170 +1,237 @@
-"""Unitree A2 velocity environment configurations."""
+"""Inference environment matching the EDU A2 actor's input and control contract."""
 
-from typing import Literal
+import math
+from copy import deepcopy
+from dataclasses import dataclass
+from functools import partial
 
-from src.assets.robots import (
-  get_a2_robot_cfg,
+import mujoco
+import torch
+from mjlab.actuator import DcMotorActuatorCfg
+from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
+from mjlab.envs import ManagerBasedRlEnvCfg, mdp
+from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
+from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.scene import SceneCfg
+from mjlab.sim import MujocoCfg, SimulationCfg
+from mjlab.tasks.velocity.mdp.velocity_command import (
+    UniformVelocityCommand,
+    UniformVelocityCommandCfg,
 )
-from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs import mdp as envs_mdp
-from mjlab.envs.mdp.actions import JointPositionActionCfg
-from mjlab.managers import TerminationTermCfg
-from mjlab.managers.event_manager import EventTermCfg
-from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
-from mjlab.tasks.velocity import mdp
-from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+from mjlab.terrains import TerrainEntityCfg
+from mjlab.viewer import ViewerConfig
 
-from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+from src.assets.robots.unitree_a2.a2_constants import get_a2_robot_cfg
 
-TerrainType = Literal["rough", "obstacles"]
+POLICY_JOINT_NAMES = tuple(
+    f"{leg}_{joint}_joint"
+    for joint in ("hip", "thigh", "calf")
+    for leg in ("FL", "FR", "RL", "RR")
+)
+DEFAULT_JOINT_POS = (0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1.0, 1.0, -1.5, -1.5, -1.5, -1.5)
+HISTORY_LENGTH = 5
+OBSERVATION_DIM = 225
+CONTROL_DT = 0.02
 
 
-def unitree_a2_rough_env_cfg(
-  play: bool = False,
-) -> ManagerBasedRlEnvCfg:
-  """Create Unitree A2 rough terrain velocity configuration."""
-  cfg = make_velocity_env_cfg()
+class PolicyJointPositionAction(JointPositionAction):
+    def _find_targets(self, cfg):
+        # mjlab 1.2's joint action resolver otherwise uses actuator/model order.
+        return self._entity.find_joints(cfg.actuator_names, preserve_order=True)
 
-  cfg.sim.mujoco.ccd_iterations = 500
-  cfg.sim.contact_sensor_maxmatch = 500
+    def process_actions(self, actions):
+        super().process_actions(actions)
+        # IsaacLab clips position targets AFTER applying scale and default offset.
+        self._processed_actions.clamp_(-100.0, 100.0)
 
-  cfg.scene.entities = {"robot": get_a2_robot_cfg()}
 
-  # Set raycast sensor frame to A2 base_link.
-  for sensor in cfg.scene.sensors or ():
-    if sensor.name == "terrain_scan":
-      assert isinstance(sensor, RayCastSensorCfg)
-      sensor.frame.name = "base_link"
+@dataclass(kw_only=True)
+class PolicyJointPositionActionCfg(JointPositionActionCfg):
+    def build(self, env):
+        return PolicyJointPositionAction(self, env)
 
-  foot_names = ("FR", "FL", "RR", "RL")
-  site_names = ("FR", "FL", "RR", "RL")
-  geom_names = tuple(f"{name}_foot_collision" for name in foot_names)
 
-  feet_ground_cfg = ContactSensorCfg(
-    name="feet_ground_contact",
-    primary=ContactMatch(mode="geom", pattern=geom_names, entity="robot"),
-    secondary=ContactMatch(mode="body", pattern="terrain"),
-    fields=("found", "force"),
-    reduce="netforce",
-    num_slots=1,
-    track_air_time=True,
-  )
-  nonfoot_ground_cfg = ContactSensorCfg(
-    name="nonfoot_ground_touch",
-    primary=ContactMatch(
-      mode="geom",
-      entity="robot",
-      # Grab all collision geoms...
-      pattern=r".*_collision\d*$",
-      # Except for the foot geoms.
-      exclude=tuple(geom_names),
-    ),
-    secondary=ContactMatch(mode="body", pattern="terrain"),
-    fields=("found", "force"),
-    reduce="none",
-    num_slots=1,
-    history_length=4,
-  )
-  cfg.scene.sensors = (cfg.scene.sensors or ()) + (
-    feet_ground_cfg,
-    nonfoot_ground_cfg,
-  )
+class FixedVelocityCommand(UniformVelocityCommand):
+    def _resample_command(self, env_ids):
+        self.vel_command_b[env_ids] = torch.tensor(self.cfg.command, device=self.device)
+        self.is_standing_env[env_ids] = False
+        self.is_heading_env[env_ids] = False
 
-  if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
-    cfg.scene.terrain.terrain_generator.curriculum = True
 
-  joint_pos_action = cfg.actions["joint_pos"]
-  assert isinstance(joint_pos_action, JointPositionActionCfg)
+@dataclass(kw_only=True)
+class FixedVelocityCommandCfg(UniformVelocityCommandCfg):
+    command: tuple[float, float, float] = (0.4, 0.0, 0.0)
 
-  cfg.viewer.body_name = "base_link"
-  cfg.viewer.distance = 1.5
-  cfg.viewer.elevation = -10.0
+    def build(self, env):
+        return FixedVelocityCommand(self, env)
 
-  cfg.observations["critic"].terms["foot_height"].params["asset_cfg"].site_names = site_names
 
-  cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
-  cfg.events["base_com"].params["asset_cfg"].body_names = ("base_link",)
+@dataclass(frozen=True)
+class StairCourse:
+    step_height: float = 0.10
+    step_width: float = 0.30
+    step_count: int = 5
+    start_x: float = 1.5
+    landing_length: float = 2.0
+    width: float = 3.0
 
-  cfg.rewards["pose"].params["std_standing"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.05,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.1,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.15,
-  }
-  cfg.rewards["pose"].params["std_walking"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  }
-  cfg.rewards["pose"].params["std_running"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  }
+    def __post_init__(self):
+        values = (self.step_height, self.step_width, self.landing_length, self.width)
+        if not all(math.isfinite(x) and x > 0 for x in values):
+            raise ValueError("Stair dimensions must be finite and positive.")
+        if self.step_count < 1 or not math.isfinite(self.start_x) or self.start_x < 0.6:
+            raise ValueError(
+                "Stairs need at least one step and 0.6 m of starting clearance."
+            )
 
-  cfg.rewards["foot_gait"].params["offset"] = [0.0, 0.5, 0.5, 0.0]
-  cfg.rewards["body_orientation_l2"].params["asset_cfg"].body_names = ("base_link",)
-  cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("base_link",)
-  cfg.rewards["foot_clearance"].params["asset_cfg"].site_names = site_names
-  cfg.rewards["foot_slip"].params["asset_cfg"].site_names = site_names
+    @property
+    def landing_start(self):
+        return self.start_x + (self.step_count - 1) * self.step_width
 
-  cfg.terminations["illegal_contact"] = TerminationTermCfg(
-    func=mdp.illegal_contact,
-    params={"sensor_name": nonfoot_ground_cfg.name, "force_threshold": 10.0},
-  )
+    @property
+    def end_x(self):
+        return (
+            self.landing_start
+            + self.landing_length
+            + (self.step_count - 1) * self.step_width
+        )
 
-  # Apply play mode overrides.
-  if play:
-    # Effectively infinite episode length.
-    cfg.episode_length_s = int(1e9)
+    def height_at(self, x, y):
+        if abs(y) > self.width / 2 or x < self.start_x or x >= self.end_x:
+            return 0.0
+        level = min(
+            self.step_count,
+            int((x - self.start_x) / self.step_width) + 1,
+            int((self.end_x - x) / self.step_width) + 1,
+        )
+        return level * self.step_height
 
-    cfg.observations["actor"].enable_corruption = False
-    cfg.events.pop("push_robot", None)
-    cfg.curriculum = {}
-    cfg.events["randomize_terrain"] = EventTermCfg(
-      func=envs_mdp.randomize_terrain,
-      mode="reset",
-      params={},
+
+def add_stairs(spec, course):
+    # Nested boxes form an ascending flight, a landing, and a descending flight.
+    for i in range(course.step_count):
+        left = course.start_x + i * course.step_width
+        right = course.end_x - i * course.step_width
+        height = (i + 1) * course.step_height
+        spec.worldbody.add_geom(
+            name=f"edu_stair_{i}",
+            type=mujoco.mjtGeom.mjGEOM_BOX,
+            size=((right - left) / 2, course.width / 2, height / 2),
+            pos=((left + right) / 2, 0, height / 2),
+            rgba=(0.40 + 0.04 * (i % 2), 0.46, 0.52, 1),
+            contype=1,
+            conaffinity=1,
+            friction=(0.8, 0.005, 0.0001),
+        )
+
+
+def make_env_cfg(*, terrain="flat", command=(0.4, 0.0, 0.0), course=None, seed=42):
+    if terrain not in ("flat", "stairs"):
+        raise ValueError(f"Unknown terrain: {terrain}")
+    if len(command) != 3 or not all(math.isfinite(x) for x in command):
+        raise ValueError("Command must contain three finite values: vx, vy, wz.")
+    robot = deepcopy(get_a2_robot_cfg())
+    robot.init_state = EntityCfg.InitialStateCfg(
+        pos=(0.0, 0.0, 0.45),
+        joint_pos=dict(zip(POLICY_JOINT_NAMES, DEFAULT_JOINT_POS)),
+        joint_vel={".*": 0.0},
     )
-
-    if cfg.scene.terrain is not None:
-      if cfg.scene.terrain.terrain_generator is not None:
-        cfg.scene.terrain.terrain_generator.curriculum = False
-        cfg.scene.terrain.terrain_generator.num_cols = 5
-        cfg.scene.terrain.terrain_generator.num_rows = 5
-        cfg.scene.terrain.terrain_generator.border_width = 10.0
-
-  return cfg
-
-
-def unitree_a2_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create Unitree A2 flat terrain velocity configuration."""
-  cfg = unitree_a2_rough_env_cfg(play=play)
-
-  cfg.sim.njmax = 300
-  cfg.sim.mujoco.ccd_iterations = 50
-  cfg.sim.contact_sensor_maxmatch = 64
-  cfg.sim.nconmax = None
-
-  # Switch to flat terrain.
-  assert cfg.scene.terrain is not None
-  cfg.scene.terrain.terrain_type = "plane"
-  cfg.scene.terrain.terrain_generator = None
-
-  # Remove raycast sensor and height scan (no terrain to scan).
-  cfg.scene.sensors = tuple(
-    s for s in (cfg.scene.sensors or ()) if s.name != "terrain_scan"
-  )
-  del cfg.observations["actor"].terms["height_scan"]
-  del cfg.observations["critic"].terms["height_scan"]
-
-  # Disable terrain curriculum (not present in play mode since rough clears all).
-  cfg.curriculum.pop("terrain_levels", None)
-
-  if play:
-    twist_cmd = cfg.commands["twist"]
-    assert isinstance(twist_cmd, UniformVelocityCommandCfg)
-    twist_cmd.ranges.lin_vel_x = (-0.5, 1.0)
-    twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
-    twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
-
-  return cfg
+    robot.articulation = EntityArticulationInfoCfg(
+        actuators=(
+            DcMotorActuatorCfg(
+                target_names_expr=(".*_joint",),
+                stiffness=25.0,
+                damping=0.5,
+                effort_limit=120.0,
+                saturation_effort=120.0,
+                velocity_limit=22.0,
+                armature=0.0,
+                frictionloss=0.0,
+            ),
+        ),
+        soft_joint_pos_limit_factor=0.9,
+    )
+    joints = SceneEntityCfg(
+        "robot", joint_names=POLICY_JOINT_NAMES, preserve_order=True
+    )
+    clip = (-100.0, 100.0)
+    terms = {
+        "base_ang_vel": ObservationTermCfg(func=mdp.base_ang_vel, scale=0.2, clip=clip),
+        "projected_gravity": ObservationTermCfg(func=mdp.projected_gravity, clip=clip),
+        "velocity_commands": ObservationTermCfg(
+            func=mdp.generated_commands,
+            params={"command_name": "base_velocity"},
+            clip=clip,
+        ),
+        "joint_pos_rel": ObservationTermCfg(
+            func=mdp.joint_pos_rel,
+            params={"asset_cfg": deepcopy(joints)},
+            clip=clip,
+        ),
+        "joint_vel_rel": ObservationTermCfg(
+            func=mdp.joint_vel_rel,
+            params={"asset_cfg": deepcopy(joints)},
+            scale=0.05,
+            clip=clip,
+        ),
+        "last_action": ObservationTermCfg(func=mdp.last_action, clip=clip),
+    }
+    return ManagerBasedRlEnvCfg(
+        seed=seed,
+        scene=SceneCfg(
+            num_envs=1,
+            entities={"robot": robot},
+            terrain=TerrainEntityCfg(terrain_type="plane"),
+            spec_fn=partial(add_stairs, course=course or StairCourse())
+            if terrain == "stairs"
+            else None,
+        ),
+        observations={
+            "actor": ObservationGroupCfg(
+                terms=terms,
+                history_length=HISTORY_LENGTH,
+                flatten_history_dim=True,
+                concatenate_terms=True,
+                enable_corruption=False,
+                nan_policy="error",
+            )
+        },
+        actions={
+            "joint_pos": PolicyJointPositionActionCfg(
+                entity_name="robot",
+                actuator_names=POLICY_JOINT_NAMES,
+                preserve_order=True,
+                scale=0.25,
+                use_default_offset=True,
+            )
+        },
+        commands={
+            "base_velocity": FixedVelocityCommandCfg(
+                entity_name="robot",
+                command=tuple(command),
+                resampling_time_range=(1e9, 1e9),
+                heading_command=False,
+                rel_standing_envs=0.0,
+                debug_vis=True,
+                ranges=UniformVelocityCommandCfg.Ranges(
+                    lin_vel_x=(-1.0, 1.0),
+                    lin_vel_y=(-0.5, 0.5),
+                    ang_vel_z=(-1.0, 1.0),
+                ),
+            )
+        },
+        sim=SimulationCfg(mujoco=MujocoCfg(timestep=0.005), njmax=300),
+        decimation=4,
+        episode_length_s=1e9,
+        viewer=ViewerConfig(
+            origin_type=ViewerConfig.OriginType.ASSET_BODY,
+            entity_name="robot",
+            body_name="base_link",
+            distance=3.5,
+            elevation=-20,
+            azimuth=135,
+            width=1280,
+            height=720,
+        ),
+    )

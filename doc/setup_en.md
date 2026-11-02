@@ -10,7 +10,7 @@
 
 ## 1. Creating a Virtual Environment
 
-It is recommended to run training or deployment programs in a virtual environment. Conda is recommended for creating virtual environments. If Conda is already installed on your system, you can skip step 1.1.
+It is recommended to run playback or deployment programs in a virtual environment. Conda is recommended for creating virtual environments. If Conda is already installed on your system, you can skip step 1.1.
 
 ### 1.1 Download and Install MiniConda
 

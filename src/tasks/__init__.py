@@ -1,5 +1,3 @@
-from mjlab.utils.lab_api.tasks.importer import import_packages
+"""Register the A2 playback environments."""
 
-_BLACKLIST_PKGS = ["utils", ".mdp"]
-
-import_packages(__name__, _BLACKLIST_PKGS)
+from .velocity.config import a2 as a2

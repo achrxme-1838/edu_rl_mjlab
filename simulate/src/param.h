@@ -61,7 +61,7 @@ inline po::variables_map helper(int argc, char** argv)
         ("help,h", "Show help message")
         ("domain_id,i", po::value<int>(&config.domain_id), "DDS domain ID; -i 0")
         ("network,n", po::value<std::string>(&config.interface), "DDS network interface; -n eth0")
-        ("robot,r", po::value<std::string>(&config.robot), "Robot type; -r go2")
+        ("robot,r", po::value<std::string>(&config.robot), "Robot type; -r a2")
         ("scene,s", po::value<std::filesystem::path>(&config.robot_scene), "Robot scene file; -s scene_terrain.xml")
     ;
 

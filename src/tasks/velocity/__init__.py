@@ -1,1 +1,1 @@
-"""Velocity tracking environments for legged robots."""
+"""A2 velocity policy playback environments."""

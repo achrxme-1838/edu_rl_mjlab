@@ -1,6 +1,6 @@
 """Installation script for the 'unitree_rl_mjlab' python package."""
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [

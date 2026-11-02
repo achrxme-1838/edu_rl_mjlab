@@ -1,24 +1,17 @@
-from mjlab.tasks.registry import register_mjlab_task
-from src.tasks.velocity.rl import VelocityOnPolicyRunner
+"""Default A2 playback tasks using the bundled EDU policy."""
 
-from .env_cfgs import (
-  unitree_a2_flat_env_cfg,
-  unitree_a2_rough_env_cfg,
+from src.tasks.registry import register_play_task
+
+from .env_cfgs import make_env_cfg
+from .policy import DEFAULT_CHECKPOINT
+
+register_play_task(
+    "Unitree-A2-Flat",
+    make_env_cfg(terrain="flat"),
+    default_checkpoint=DEFAULT_CHECKPOINT,
 )
-from .rl_cfg import unitree_a2_ppo_runner_cfg
-
-register_mjlab_task(
-  task_id="Unitree-A2-Rough",
-  env_cfg=unitree_a2_rough_env_cfg(),
-  play_env_cfg=unitree_a2_rough_env_cfg(play=True),
-  rl_cfg=unitree_a2_ppo_runner_cfg(),
-  runner_cls=VelocityOnPolicyRunner,
-)
-
-register_mjlab_task(
-  task_id="Unitree-A2-Flat",
-  env_cfg=unitree_a2_flat_env_cfg(),
-  play_env_cfg=unitree_a2_flat_env_cfg(play=True),
-  rl_cfg=unitree_a2_ppo_runner_cfg(),
-  runner_cls=VelocityOnPolicyRunner,
+register_play_task(
+    "Unitree-A2-Stairs",
+    make_env_cfg(terrain="stairs"),
+    default_checkpoint=DEFAULT_CHECKPOINT,
 )
