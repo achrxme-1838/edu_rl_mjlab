@@ -69,6 +69,25 @@ walking and C++ DDS simulation rollouts have not been tested.
 
 The SDK's `g1`/`go2` namespaces are shared DDS wrappers used by A2.
 
+## Real joint mapping test
+
+`deploy/robots/a2/build/real_joint_test` uses the same C++ Unitree SDK2 as `a2_ctrl`.
+It moves to the EDU default pose, then oscillates one
+joint at a time in EDU order. It prints the expected joint name and SDK motor ID.
+Space returns the joint and advances; Q / Esc / Ctrl-C sends Passive damping and exits.
+Support or suspend the robot: this tool has no balancing policy.
+See [setup, controls, and offline preview](doc/real_joint_test.md) before running.
+
+```bash
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+cmake --build deploy/robots/a2/build --target real_joint_test -j2
+./deploy/robots/a2/build/real_joint_test --dry-run
+# Replace YOUR_ROBOT_NIC with the robot Ethernet interface; stop other controllers first.
+./deploy/robots/a2/build/real_joint_test --network YOUR_ROBOT_NIC
+```
+
+This diagnostic does not require Python, Conda, or ONNX Runtime.
+
 ## Acknowledgements
 
 - [mjlab](https://github.com/mujocolab/mjlab): simulation framework

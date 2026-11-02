@@ -56,6 +56,10 @@ EDU 순서를 mjlab 순서에 대응시키는 인덱스
 SDK 순서를 사용한다. 이름과 SDK ID의 대응은 기존 설정 및 `scene_a2.xml`의
 actuator 순서로 교차 확인했으며, 실제 하드웨어에서 모터를 움직여 확인한 것은 아니다.
 
+실제 관절을 하나씩 움직여 비교하려면 [real_joint_test 사용법](real_joint_test.md)을 따른다.
+같은 `deploy.yaml` 매핑과 C++ Unitree SDK2를 사용하며,
+EDU 순서로 예상 이름과 모터 ID를 표시한다. 실행 파일은 `build/real_joint_test`다.
+
 ## 관측과 제어
 
 관측 항목은 각속도 3, 중력 방향 3, 속도 명령 3, 상대 관절 위치 12,

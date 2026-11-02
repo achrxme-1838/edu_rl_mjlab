@@ -21,7 +21,7 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/../../include/
 )
 
-link_libraries(
+set(A2_DEPLOY_LIBRARIES
   unitree_sdk2 ddsc ddscxx rt pthread
   libboost_program_options.a libyaml-cpp.a fmt
   ${ONNXRUNTIME_DIR}/lib/libonnxruntime.so.1.22.0
@@ -32,14 +32,26 @@ file(GLOB_RECURSE ADD_SRC_LIST
 )
 
 add_library(${PROJECT_NAME}_lib ${ADD_SRC_LIST})
-link_libraries(${PROJECT_NAME}_lib)
+target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${A2_DEPLOY_LIBRARIES})
 
 add_executable(a2_ctrl main.cpp)
+target_link_libraries(a2_ctrl PRIVATE ${PROJECT_NAME}_lib)
+
+add_executable(real_joint_test real_joint_test.cpp)
+target_link_libraries(real_joint_test PRIVATE
+  unitree_sdk2 ddsc ddscxx rt pthread
+  libboost_program_options.a libyaml-cpp.a
+)
 
 option(BUILD_OFFLINE_TESTS "Build policy checks that do not create DDS channels" OFF)
 if(BUILD_OFFLINE_TESTS)
   add_executable(a2_policy_probe tests/policy_probe.cpp)
+  target_link_libraries(a2_policy_probe PRIVATE ${PROJECT_NAME}_lib)
   add_executable(a2_joystick_test tests/joystick_test.cpp)
+  target_link_libraries(a2_joystick_test PRIVATE ${PROJECT_NAME}_lib)
+  add_executable(a2_joint_test tests/joint_test.cpp)
+  target_link_libraries(a2_joint_test PRIVATE ddsc ddscxx libyaml-cpp.a)
   enable_testing()
   add_test(NAME a2_joystick COMMAND a2_joystick_test)
+  add_test(NAME a2_joint_test COMMAND a2_joint_test "${PROJECT_SOURCE_DIR}/../../..")
 endif()

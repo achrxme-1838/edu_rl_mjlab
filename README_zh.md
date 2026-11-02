@@ -60,6 +60,25 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 不创建 DDS 通道。本次未验证实机行走或 C++ DDS 仿真行走。
 SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
 
+## 实机关节映射检查
+
+`deploy/robots/a2/build/real_joint_test` 与 `a2_ctrl` 使用同一个 C++ Unitree SDK2。
+它先移动到 EDU 默认姿态，再按 EDU 顺序逐个小幅摆动关节，
+同时显示预期关节名称和 SDK 电机 ID。Space 先复位当前关节再进入下一个；
+Q / Esc / Ctrl-C 发送 Passive 阻尼命令并退出。
+此工具没有平衡控制，执行时须支撑或悬吊机器人。
+安装、操作及离线预览见[关节检查文档](doc/real_joint_test.md)。
+
+```bash
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+cmake --build deploy/robots/a2/build --target real_joint_test -j2
+./deploy/robots/a2/build/real_joint_test --dry-run
+# 将 YOUR_ROBOT_NIC 替换为机器人 Ethernet 接口，并先停止其他控制器。
+./deploy/robots/a2/build/real_joint_test --network YOUR_ROBOT_NIC
+```
+
+该工具无需 Python、Conda 或 ONNX Runtime。
+
 ## 致谢
 
 - [mjlab](https://github.com/mujocolab/mjlab)：仿真框架
