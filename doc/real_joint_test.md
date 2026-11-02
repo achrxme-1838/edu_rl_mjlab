@@ -9,7 +9,7 @@ SDK 설치와 네트워크 설정은 [sim2real 절차](sim2real.md)를 따른다
 NX (a2)에서 관절 테스트만 빌드하려면:
 
 ```bash
-cd "$HOME/control_ws/unitree_rl_mjlab"
+cd "$HOME/control_ws/edu_rl_mjlab"
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
 ```

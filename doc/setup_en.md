@@ -35,13 +35,13 @@ source ~/.bashrc
 Use the following command to create a virtual environment:
 
 ```bash
-conda create -n unitree_rl_mjlab python=3.11
+conda create -n edu_rl_mjlab python=3.11
 ```
 
 ### 1.3 Activate the Virtual Environment
 
 ```bash
-conda activate unitree_rl_mjlab
+conda activate edu_rl_mjlab
 ```
 
 ---
@@ -53,7 +53,7 @@ conda activate unitree_rl_mjlab
 Clone the repository using Git:
 
 ```bash
-git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git
+git clone https://github.com/achrxme-1838/edu_rl_mjlab.git
 ```
 
 ### 2.2 Install Dependencies
@@ -66,7 +66,7 @@ All other dependencies are specified in the setup.py file.
 Navigate to the project root directory and install them with:
 
 ```bash
-cd unitree_rl_mjlab
+cd edu_rl_mjlab
 pip install -e .
 ```
 

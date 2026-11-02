@@ -9,7 +9,7 @@ A2 C++ 部署控制器及其公共运行库仍然保留。
 
 ```bash
 conda activate mjlab
-cd /home/lim/rl_ws/unitree_rl_mjlab
+cd /home/lim/rl_ws/edu_rl_mjlab
 bash scripts/sim2sim.sh
 bash scripts/sim2sim.sh --terrain flat
 ```

@@ -15,7 +15,7 @@
 
 ```bash
 conda activate mjlab
-cd /home/lim/rl_ws/unitree_rl_mjlab
+cd /home/lim/rl_ws/edu_rl_mjlab
 
 # 10 cm × 5단 상승 → 2 m 플랫폼 → 하강, 전진 명령 0.4 m/s
 bash scripts/sim2sim.sh

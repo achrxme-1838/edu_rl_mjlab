@@ -12,7 +12,7 @@ See [the installation guide](doc/setup_en.md). The existing local environment is
 
 ```bash
 conda activate mjlab
-cd /home/lim/rl_ws/unitree_rl_mjlab
+cd /home/lim/rl_ws/edu_rl_mjlab
 bash scripts/sim2sim.sh
 bash scripts/sim2sim.sh --terrain flat
 ```

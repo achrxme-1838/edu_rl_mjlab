@@ -13,13 +13,13 @@ uname -m  # aarch64 확인
 mkdir -p "$HOME/control_ws"
 ```
 
-## 2. unitree_rl_mjlab 설치
+## 2. edu_rl_mjlab 설치
 
 EDU A2 배포 코드가 포함된 저장소를 받는다. 폴더가 이미 있으면 clone을 생략한다.
 
 ```bash
-git clone https://github.com/achrxme-1838/unitree_rl_mjlab.git \
-  "$HOME/control_ws/unitree_rl_mjlab"
+git clone https://github.com/achrxme-1838/edu_rl_mjlab.git \
+  "$HOME/control_ws/edu_rl_mjlab"
 ```
 
 로컬에서 수정한 코드를 사용할 경우 해당 소스와 정책 파일도 NX (a2)에 반영한다.
@@ -60,7 +60,7 @@ ls /usr/local/include/unitree/dds_wrapper/robots/g1/g1.h
 
 개발 PC의 `edu_rl_lab`에서 `play`하면 체크포인트 폴더 아래
 `exported/<체크포인트 이름>/policy.onnx`가 생성된다.
-이 파일을 NX (a2)의 `unitree_rl_mjlab/networks/01_EDU_A2_STAIR/`에 복사해 사용한다.
+이 파일을 NX (a2)의 `edu_rl_mjlab/networks/01_EDU_A2_STAIR/`에 복사해 사용한다.
 
 [deploy/robots/a2/config/deploy.yaml](../deploy/robots/a2/config/deploy.yaml)의
 `policy_dir`을 사용할 **폴더 경로**로 지정한다.
@@ -77,7 +77,7 @@ policy_dir: networks/01_EDU_A2_STAIR/
 NX (a2)에서 빌드한다.
 
 ```bash
-cd "$HOME/control_ws/unitree_rl_mjlab"
+cd "$HOME/control_ws/edu_rl_mjlab"
 
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
   -DCMAKE_BUILD_TYPE=Release \
@@ -124,7 +124,7 @@ IP 주소·넷마스크는 Ubuntu 네트워크 설정에서 로봇 제어망에 
 **연결되면 별도 시작 버튼 없이 관절이 움직인다.** `a2_ctrl`을 종료한 상태에서 실행한다.
 
 ```bash
-cd "$HOME/control_ws/unitree_rl_mjlab"
+cd "$HOME/control_ws/edu_rl_mjlab"
 ./deploy/robots/a2/build/real_joint_test
 ```
 
@@ -151,7 +151,7 @@ cd "$HOME/control_ws/unitree_rl_mjlab"
 **제어기 연결 후 2초 동안 기본 고정 자세로 자동 기립한다.**
 
 ```bash
-cd "$HOME/control_ws/unitree_rl_mjlab"
+cd "$HOME/control_ws/edu_rl_mjlab"
 bash scripts/sim2real.sh
 ```
 

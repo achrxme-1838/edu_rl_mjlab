@@ -35,13 +35,13 @@ source ~/.bashrc
 使用以下命令创建虚拟环境：
 
 ```bash
-conda create -n unitree_rl_mjlab python=3.11
+conda create -n edu_rl_mjlab python=3.11
 ```
 
 ### 1.3 激活虚拟环境
 
 ```bash
-conda activate unitree_rl_mjlab
+conda activate edu_rl_mjlab
 ```
 
 ---
@@ -53,7 +53,7 @@ conda activate unitree_rl_mjlab
 通过 Git 克隆仓库：
 
 ```bash
-git clone https://github.com/unitreerobotics/unitree_rl_mjlab.git
+git clone https://github.com/achrxme-1838/edu_rl_mjlab.git
 ```
 
 ### 2.2 安装依赖
@@ -63,10 +63,10 @@ sudo apt install -y libyaml-cpp-dev libboost-all-dev libeigen3-dev libspdlog-dev
 ```
 
 我们将其余所需依赖放入 setup.py 文件中，
-进入 unitree_rl_mjlab 项目根目录并安装：
+进入 edu_rl_mjlab 项目根目录并安装：
 
 ```bash
-cd unitree_rl_mjlab
+cd edu_rl_mjlab
 pip install -e .
 ```
 
