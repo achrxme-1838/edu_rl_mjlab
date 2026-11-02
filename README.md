@@ -38,6 +38,9 @@ The basic workflow for using reinforcement learning to achieve motion control is
 
 ## 🛠️ Usage Guide
 
+EDU A2 checkpoints can be played with `bash scripts/play_a2_edu.sh`.
+See [EDU A2 sim2sim](doc/a2_edu_sim2sim.md) for the bundled checkpoint, commands, and measured results.
+
 ### 1. Velocity Tracking Training
 
 Run the following command to train a velocity tracking policy:
