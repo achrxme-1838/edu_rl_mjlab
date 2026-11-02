@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 project(a2_controller)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(yaml-cpp REQUIRED)
@@ -33,3 +35,11 @@ add_library(${PROJECT_NAME}_lib ${ADD_SRC_LIST})
 link_libraries(${PROJECT_NAME}_lib)
 
 add_executable(a2_ctrl main.cpp)
+
+option(BUILD_OFFLINE_TESTS "Build policy checks that do not create DDS channels" OFF)
+if(BUILD_OFFLINE_TESTS)
+  add_executable(a2_policy_probe tests/policy_probe.cpp)
+  add_executable(a2_joystick_test tests/joystick_test.cpp)
+  enable_testing()
+  add_test(NAME a2_joystick COMMAND a2_joystick_test)
+endif()

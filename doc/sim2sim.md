@@ -102,9 +102,9 @@ A2 전용 구조로 정리한 뒤 계약·task 등록 검증 8개, 평지 100-st
 벗어나 `--check`가 실패했다 (`outputs/sim2sim/a2_only_stairs/report.json`).
 따라서 10 cm 계단에서도 매 실행의 완주를 보장하지 않는다.
 
-C++ DDS 시뮬레이터는 A2 전용 bridge로 빌드됐다. 기존 A2 배포 컨트롤러는
-현재 설치된 DDS wrapper에 `KeyBase` 타입이 없어 컴파일에 실패한다.
-Python sim2sim에는 이 컨트롤러가 필요하지 않다.
+C++ DDS 시뮬레이터는 A2 전용 bridge로 빌드됐다. 이후 sim2real 이식에서
+`KeyBase` SDK 호환 문제를 수정하고 A2 배포 컨트롤러의 빌드도 확인했다.
+C++ 이식과 오프라인 검증 범위는 [sim2real 문서](sim2real.md)를 참고한다.
 
 ```bash
 # 관절/관측/가중치/모터/물성 검증

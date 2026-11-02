@@ -6,6 +6,8 @@
 #include "onnxruntime_cxx_api.h"
 #include <iostream>
 #include <mutex>
+#include <cmath>
+#include <algorithm>
 
 namespace isaaclab
 {
@@ -34,6 +36,8 @@ public:
         // Init Model
         env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "onnx_model");
         session_options.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
+        session_options.SetIntraOpNumThreads(1);
+        session_options.SetInterOpNumThreads(1);
 
         session = std::make_unique<Ort::Session>(env, model_path.c_str(), session_options);
 
@@ -42,11 +46,15 @@ public:
             input_shapes.push_back(input_type.GetTensorTypeAndShapeInfo().GetShape());
             auto input_name = session->GetInputNameAllocated(i, allocator);
             input_names.push_back(input_name.release());
+            if (input_type.GetTensorTypeAndShapeInfo().GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+                throw std::runtime_error("Policy inputs must be float tensors");
+            }
         }
 
         for (const auto& shape : input_shapes) {
             size_t size = 1;
             for (const auto& dim : shape) {
+                if (dim <= 0) throw std::runtime_error("Deployment requires fixed positive ONNX input dimensions");
                 size *= dim;
             }
             input_sizes.push_back(size);
@@ -55,6 +63,11 @@ public:
         // Get output shape
         Ort::TypeInfo output_type = session->GetOutputTypeInfo(0);
         output_shape = output_type.GetTensorTypeAndShapeInfo().GetShape();
+        if (session->GetOutputCount() != 1 || output_shape.size() != 2 ||
+            output_shape[0] != 1 || output_shape[1] <= 0 ||
+            output_type.GetTensorTypeAndShapeInfo().GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+            throw std::runtime_error("Policy output must be one float tensor [1, action_dim]");
+        }
         auto output_name = session->GetOutputNameAllocated(0, allocator);
         output_names.push_back(output_name.release());
 
@@ -78,6 +91,10 @@ public:
         {
             const std::string name_str(input_names[i]);
             auto& input_data = obs.at(name_str);
+            if (input_data.size() != input_sizes[i] ||
+                !std::all_of(input_data.begin(), input_data.end(), [](float x) { return std::isfinite(x); })) {
+                throw std::runtime_error("Invalid observation shape or non-finite input: " + name_str);
+            }
             auto input_tensor = Ort::Value::CreateTensor<float>(memory_info, input_data.data(), input_sizes[i], input_shapes[i].data(), input_shapes[i].size());
             input_tensors.push_back(std::move(input_tensor));
         }

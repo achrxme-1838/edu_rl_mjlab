@@ -66,6 +66,8 @@
 #include <cctype>
 #include <memory>
 #include <algorithm>
+#include <type_traits>
+#include <utility>
 #include <yaml-cpp/yaml.h>
 
 #include <unitree/dds_wrapper/common/unitree_joystick.hpp>
@@ -156,36 +158,52 @@ inline std::string ToLower(std::string s) {
   return s;
 }
 
-// Retrieve KeyBase from UnitreeJoystick (case-insensitive)
-inline const KeyBase& GetKey(const UnitreeJoystick& joy, std::string_view name_sv) {
+// Snapshot the common fields supported by both SDK joystick APIs.
+struct KeySnapshot {
+  bool pressed;
+  bool on_pressed;
+  bool on_released;
+  float pressed_time;
+};
+
+template <class T, class = void>
+struct HasPressedTime : std::false_type {};
+template <class T>
+struct HasPressedTime<T, std::void_t<decltype(std::declval<T>().pressed_time)>>
+    : std::true_type {};
+
+template <class T>
+inline KeySnapshot SnapshotKey(const T& key) {
+  float held = -1.0f;
+  if constexpr (HasPressedTime<T>::value) held = key.pressed_time;
+  return {key.pressed, key.on_pressed, key.on_released, held};
+}
+
+inline KeySnapshot GetKey(const UnitreeJoystick& joy, std::string_view name_sv) {
   const std::string name = ToLower(std::string{name_sv});
-  static const std::unordered_map<std::string, const KeyBase* (*)(const UnitreeJoystick&)> kMap = {
-    {"back", [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.back); }},
-    {"start",[](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.start); }},
-    {"ls",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.LS); }},
-    {"rs",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.RS); }},
-    {"lb",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.LB); }},
-    {"rb",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.RB); }},
-    {"a",    [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.A); }},
-    {"b",    [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.B); }},
-    {"x",    [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.X); }},
-    {"y",    [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.Y); }},
-    {"up",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.up); }},
-    {"down", [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.down); }},
-    {"left", [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.left); }},
-    {"right",[](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.right); }},
-    {"f1",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.F1); }},
-    {"f2",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.F2); }},
-    {"lx",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.lx); }},
-    {"ly",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.ly); }},
-    {"rx",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.rx); }},
-    {"ry",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.ry); }},
-    {"lt",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.LT); }},
-    {"rt",   [](auto& j)->const KeyBase*{ return &static_cast<const KeyBase&>(j.RT); }},
-  };
-  auto it = kMap.find(name);
-  if (it == kMap.end()) throw std::runtime_error("Unknown key name: " + std::string(name_sv));
-  return *it->second(joy);
+  if (name == "back") return SnapshotKey(joy.back);
+  if (name == "start") return SnapshotKey(joy.start);
+  if (name == "ls") return SnapshotKey(joy.LS);
+  if (name == "rs") return SnapshotKey(joy.RS);
+  if (name == "lb") return SnapshotKey(joy.LB);
+  if (name == "rb") return SnapshotKey(joy.RB);
+  if (name == "a") return SnapshotKey(joy.A);
+  if (name == "b") return SnapshotKey(joy.B);
+  if (name == "x") return SnapshotKey(joy.X);
+  if (name == "y") return SnapshotKey(joy.Y);
+  if (name == "up") return SnapshotKey(joy.up);
+  if (name == "down") return SnapshotKey(joy.down);
+  if (name == "left") return SnapshotKey(joy.left);
+  if (name == "right") return SnapshotKey(joy.right);
+  if (name == "f1") return SnapshotKey(joy.F1);
+  if (name == "f2") return SnapshotKey(joy.F2);
+  if (name == "lx") return SnapshotKey(joy.lx);
+  if (name == "ly") return SnapshotKey(joy.ly);
+  if (name == "rx") return SnapshotKey(joy.rx);
+  if (name == "ry") return SnapshotKey(joy.ry);
+  if (name == "lt") return SnapshotKey(joy.LT);
+  if (name == "rt") return SnapshotKey(joy.RT);
+  throw std::runtime_error("Unknown key name: " + std::string(name_sv));
 }
 
 // ======================== Recursive Descent Parser ========================
@@ -310,8 +328,11 @@ inline std::function<bool(const UnitreeJoystick&)> Compile(const Node& n) {
   switch (n.kind) {
     case Node::kAtom: {
       Atom a = n.atom;
+      if (a.field == Field::kHoldTimeGE && GetKey(UnitreeJoystick{}, a.name).pressed_time < 0) {
+        throw std::runtime_error("Hold-time expressions require an SDK with pressed_time support");
+      }
       return [a](const UnitreeJoystick& joy) -> bool {
-        const KeyBase& kb = GetKey(joy, a.name);
+        const auto kb = GetKey(joy, a.name);
         switch (a.field) {
           case Field::kPressed:     return kb.pressed;
           case Field::kOnPressed:   return kb.on_pressed;

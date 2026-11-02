@@ -1,6 +1,8 @@
 #pragma once
 
 #include "isaaclab/envs/manager_based_rl_env.h"
+#include <algorithm>
+#include <cmath>
 
 namespace isaaclab
 {
@@ -11,9 +13,9 @@ inline bool bad_orientation(ManagerBasedRLEnv* env, float limit_angle = 1.0)
 {
     auto & asset = env->robot;
     auto & data = asset->data.projected_gravity_b;
-//    return std::fabs(std::acos(-data[2])) > limit_angle;
-    return false;
+    if (!data.allFinite()) return true;
+    return std::acos(std::clamp(-data[2], -1.0f, 1.0f)) > limit_angle;
 }
 
-} 
-} 
+}
+}

@@ -17,7 +17,9 @@ State_RLBase::State_RLBase(int state_mode, std::string state_string)
 
     this->registered_checks.emplace_back(
         std::make_pair(
-            [&]()->bool{ return isaaclab::mdp::bad_orientation(env.get(), 1.0); },
+            [&]()->bool{
+                return policy_failed || invalid_orientation;
+            },
             FSMStringMap.right.at("Passive")
         )
     );
@@ -25,8 +27,7 @@ State_RLBase::State_RLBase(int state_mode, std::string state_string)
 
 void State_RLBase::run()
 {
-    auto action = env->action_manager->processed_actions();
-    for(int i(0); i < env->robot->data.joint_ids_map.size(); i++) {
-        lowcmd->msg_.motor_cmd()[env->robot->data.joint_ids_map[i]].q() = action[i];
-    }
+    std::lock_guard<std::mutex> lock(target_mutex);
+    unitree::write_joint_position_targets(lowcmd->msg_, env->robot->data.joint_ids_map,
+                                         position_targets);
 }

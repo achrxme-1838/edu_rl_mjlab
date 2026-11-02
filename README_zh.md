@@ -19,17 +19,16 @@ bash scripts/sim2sim.sh --terrain flat
 环境、actor 加载和回放报告位于 `src/tasks/velocity/config/a2/`。
 观测顺序、电机参数、录像方法及已知限制见 [sim2sim 文档](doc/sim2sim.md)。
 
-也可以通过已注册的任务运行同一策略：
+查看可用的 A2 环境配置：
 
 ```bash
 env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/list_envs.py
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Flat
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Stairs
 ```
 
 仅注册 `Unitree-A2-Flat` 和 `Unitree-A2-Stairs`。
-`play.py` 直接加载 actor，可通过 `--checkpoint-file` 指定其他兼容的 EDU 网络。
-`--headless --steps 200` 用于有限步数检查。
+通过 `sim2sim.sh --terrain flat` 或 `sim2sim.sh --terrain stairs` 运行。
+可通过 `--checkpoint /path/to/model.pt` 指定其他兼容的 EDU 网络。
+`--headless --steps 200` 用于有限步数回放。
 `visualize_terrain.py` 用于预览地形，可选择显示 A2。
 
 ## 验证
@@ -43,30 +42,23 @@ bash scripts/sim2sim.sh --headless --steps 2000 --check
 报告保存在 `outputs/sim2sim/`。
 `networks/01_EDU_A2_STAIR/params/` 保存源网络的配置快照，供上述验证使用。
 
-## A2 C++ 运行工具
+## A2 sim2real
 
-`deploy/robots/a2/` 保留原有 ONNX 部署控制器。
-DDS 仿真器通过 `simulate/config.yaml` 默认加载 A2。
-这些工具需要 Unitree SDK2/DDS wrapper、安装文档中的 C++ 依赖，
-以及与 `deploy.yaml` 一致的 ONNX 策略。
-内置 EDU `.pt` 网络由 Python sim2sim 加载；C++ 控制器仍使用原有 A2 的观测和动作配置。
+`deploy/robots/a2/` 使用现有 C++/DDS 控制器运行 EDU actor。
+该目录下的 `config/policy/velocity/v0/exported/policy.onnx` 为已导出的网络。
+`params/deploy.yaml` 已适配 EDU 观测、历史、关节顺序、PD 和动作处理。
+关节到电机 ID 的对应、状态机、导出及运行方法见 [sim2real 文档](doc/sim2real.md)。
 
 ```bash
-cmake -S simulate -B simulate/build
-cmake --build simulate/build -j2
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
+ctest --test-dir deploy/robots/a2/build --output-on-failure
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 ```
 
-准备兼容的 ONNX 策略并连接手柄后，在两个终端分别启动 DDS 仿真器和控制器：
-
-```bash
-./simulate/build/unitree_mujoco
-./deploy/robots/a2/build/a2_ctrl --network=lo
-```
-
-公共 DDS 消息封装中的 SDK `g1`/`go2` 命名空间仍被 A2 使用。
-这些机器人对应的模型、任务和部署目标均已移除。
+离线工具用合成传感器数据对比实际 C++ 观测、ONNX 推理和动作处理与 Python 输出，
+不创建 DDS 通道。本次未验证实机行走或 C++ DDS 仿真行走。
+SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
 
 ## 致谢
 

@@ -14,4 +14,5 @@ setup(
     packages=["src"],
     version="0.0.1",
     install_requires=INSTALL_REQUIRES,
+    extras_require={"export": ["onnx>=1.16"]},
 )

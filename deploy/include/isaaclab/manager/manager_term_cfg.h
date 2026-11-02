@@ -26,6 +26,7 @@ struct ObservationTermCfg
 
     void reset(std::vector<float> obs)
     {
+        buff_.clear();
         for(int i(0); i < history_length; ++i) add(obs);
     }
 

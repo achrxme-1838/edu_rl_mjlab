@@ -24,17 +24,16 @@ The environment, actor loader, and rollout reporting live in
 See [configuration and measured results](doc/sim2sim.md) for observation order,
 motor settings, recording options, and known rollout limitations.
 
-The same policy is available through the registered playback tasks:
+List the available A2 environment configurations:
 
 ```bash
 env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/list_envs.py
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Flat
-env -u PYTHONPATH PYTHONNOUSERSITE=1 python scripts/play.py Unitree-A2-Stairs
 ```
 
-Only `Unitree-A2-Flat` and `Unitree-A2-Stairs` are registered. `play.py` loads the
-actor directly; `--checkpoint-file` selects another compatible EDU checkpoint.
-`--headless --steps 200` runs a bounded check. `visualize_terrain.py` previews
+Only `Unitree-A2-Flat` and `Unitree-A2-Stairs` are registered. Run them through
+`sim2sim.sh --terrain flat` or `sim2sim.sh --terrain stairs`.
+`--checkpoint /path/to/model.pt` selects another compatible EDU checkpoint;
+`--headless --steps 200` runs a bounded rollout. `visualize_terrain.py` previews
 terrain with an optional A2 model.
 
 ## Verification
@@ -49,32 +48,26 @@ model properties, and task registration. Reports are saved under `outputs/sim2si
 The snapshots in `networks/01_EDU_A2_STAIR/params/` record the source checkpoint's
 settings for these checks; no training entry point uses them.
 
-## A2 C++ runtime
+## A2 sim2real
 
-`deploy/robots/a2/` retains the existing ONNX deployment controller.
-`simulate/config.yaml` selects the A2 model for the DDS simulator.
-These tools require the Unitree SDK2/DDS wrapper, C++ dependencies listed in the
-installation guide, and a compatible ONNX policy with its `deploy.yaml`.
-The bundled EDU `.pt` checkpoint is loaded by the Python sim2sim tools;
-the existing C++ controller still uses its original A2 observation/action settings.
+`deploy/robots/a2/` runs the EDU actor through the existing C++/DDS controller.
+The exported model is `config/policy/velocity/v0/exported/policy.onnx` under that
+folder. `params/deploy.yaml` matches EDU observations, history, joint order, PD,
+and action processing. See [the sim2real guide](doc/sim2real.md) for the exact
+policy-to-motor mapping, FSM settings, export commands, and runtime instructions.
 
 ```bash
-cmake -S simulate -B simulate/build
-cmake --build simulate/build -j2
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
+ctest --test-dir deploy/robots/a2/build --output-on-failure
+env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 ```
 
-For DDS simulation with a compatible ONNX deployment policy and a connected gamepad,
-run the simulator and controller in separate terminals:
+The offline probe compares the production C++ observation/ONNX/action path with
+Python using synthetic sensor frames. It opens no DDS channels. Physical robot
+walking and C++ DDS simulation rollouts have not been tested.
 
-```bash
-./simulate/build/unitree_mujoco
-./deploy/robots/a2/build/a2_ctrl --network=lo
-```
-
-The SDK's `g1`/`go2` namespaces still appear in shared DDS message wrappers used by
-A2. No models, tasks, or deployment targets for those robots remain.
+The SDK's `g1`/`go2` namespaces are shared DDS wrappers used by A2.
 
 ## Acknowledgements
 
