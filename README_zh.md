@@ -55,11 +55,15 @@ NX (a2) 上的复制及运行方法见 [sim2real 文档](doc/sim2real.md)。
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
 ctest --test-dir deploy/robots/a2/build --output-on-failure
+bash scripts/sim2real.sh --check-policy
 env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 ```
 
 离线工具用合成传感器数据对比实际 C++ 观测、ONNX 推理和动作处理与 Python 输出，
 不创建 DDS 通道。本次未验证实机行走或 C++ DDS 仿真行走。
+在 `deploy/robots/a2/config/config.yaml` 中设置 `network.interface` 后，
+在 NX (a2) 上运行 `bash scripts/sim2real.sh`，加上 `--log` 可保存控制器日志。
+
 SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
 手柄输入保持 SDK `UnitreeJoystick` 的默认按键映射和滤波设置。
 控制器启动后用 2 秒自动移动至固定站姿。**Start** 切换固定站姿 / 策略模式，

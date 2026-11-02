@@ -62,13 +62,16 @@ observations, history, joint order, PD, and action processing. See
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
 ctest --test-dir deploy/robots/a2/build --output-on-failure
-./deploy/robots/a2/build/a2_ctrl --check-policy
+bash scripts/sim2real.sh --check-policy
 env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 ```
 
 The offline probe compares the production C++ observation/ONNX/action path with
 Python using synthetic sensor frames. It opens no DDS channels. Physical robot
 walking and C++ DDS simulation rollouts have not been tested.
+
+After configuring `network.interface` in `deploy/robots/a2/config/config.yaml`,
+run `bash scripts/sim2real.sh` on NX (a2). Add `--log` to save the controller log.
 
 The SDK's `g1`/`go2` namespaces are shared DDS wrappers used by A2.
 Joystick inputs retain the SDK's `UnitreeJoystick` mapping and filter defaults.

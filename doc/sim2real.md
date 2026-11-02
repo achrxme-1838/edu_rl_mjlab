@@ -87,7 +87,7 @@ cmake --build deploy/robots/a2/build -j2
 ldd deploy/robots/a2/build/a2_ctrl
 ldd deploy/robots/a2/build/real_joint_test
 ctest --test-dir deploy/robots/a2/build --output-on-failure
-./deploy/robots/a2/build/a2_ctrl --check-policy
+bash scripts/sim2real.sh --check-policy
 ```
 
 `ldd`에 `not found`가 없어야 하며 CTest가 통과해야 한다.
@@ -152,11 +152,12 @@ cd "$HOME/control_ws/unitree_rl_mjlab"
 
 ```bash
 cd "$HOME/control_ws/unitree_rl_mjlab"
-./deploy/robots/a2/build/a2_ctrl --log
+bash scripts/sim2real.sh
 ```
 
 `Connected to robot.` 및 `FSM: Start FixStand`를 확인한다.
-로그는 `deploy/robots/a2/log/log.txt`에 저장된다.
+로그를 저장하려면 `bash scripts/sim2real.sh --log`로 실행한다.
+로그 경로는 `deploy/robots/a2/log/log.txt`다.
 
 ### 조이스틱
 
