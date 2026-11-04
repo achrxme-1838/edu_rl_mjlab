@@ -118,9 +118,10 @@ REGISTER_OBSERVATION(velocity_commands)
     const auto cfg = env->cfg["commands"]["base_velocity"]["ranges"];
 
     const auto scales = env->robot->data.velocity_scales;
+    // Left stick: forward/backward and yaw. Right horizontal axis: lateral motion.
     obs[0] = a2_controls::velocity_command(joystick->ly(), cfg["lin_vel_x"][0].as<float>(), cfg["lin_vel_x"][1].as<float>(), scales[0]);
-    obs[1] = a2_controls::velocity_command(-joystick->lx(), cfg["lin_vel_y"][0].as<float>(), cfg["lin_vel_y"][1].as<float>(), scales[0]);
-    obs[2] = a2_controls::velocity_command(-joystick->rx(), cfg["ang_vel_z"][0].as<float>(), cfg["ang_vel_z"][1].as<float>(), scales[1]);
+    obs[1] = a2_controls::velocity_command(-joystick->rx(), cfg["lin_vel_y"][0].as<float>(), cfg["lin_vel_y"][1].as<float>(), scales[0]);
+    obs[2] = a2_controls::velocity_command(-joystick->lx(), cfg["ang_vel_z"][0].as<float>(), cfg["ang_vel_z"][1].as<float>(), scales[1]);
 
     return obs;
 }

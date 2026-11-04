@@ -41,9 +41,10 @@ void load_frame(SensorFrame& sensor, const YAML::Node& frame) {
     for (int i = 0; i < 3; ++i) sensor.msg_.imu_state().gyroscope()[i] = gyro.at(i);
     auto command = frame["command"].as<std::vector<float>>();
     unitree::common::REMOTE_DATA_RX remote{};
+    // Synthetic command order stays [forward, lateral, yaw].
     remote.RF_RX.ly = command.at(0);
-    remote.RF_RX.lx = -command.at(1);
-    remote.RF_RX.rx = -command.at(2);
+    remote.RF_RX.rx = -command.at(1);
+    remote.RF_RX.lx = -command.at(2);
     sensor.joystick.extract(remote);
 }
 

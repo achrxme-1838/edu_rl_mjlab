@@ -4,6 +4,18 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <unitree/idl/hg/LowState_.hpp>
+#include "unitree_articulation.h"
+#include "isaaclab/envs/mdp/observations/observations.h"
+#include "isaaclab/envs/mdp/actions/joint_actions.h"
+
+struct JoystickSensorFrame {
+    std::mutex mutex_;
+    unitree_hg::msg::dds_::LowState_ msg_;
+    unitree::common::UnitreeJoystick joystick;
+};
 
 int main(int argc, char** argv) {
     using namespace unitree::common;
@@ -74,6 +86,41 @@ int main(int argc, char** argv) {
     near(a2_controls::velocity_command(5, -1, 1, 1), 1);
     near(a2_controls::velocity_command(1, -.6, .6, 0), 0);
 
+    // Exercise the production observation function with SDK-filtered packets.
+    const auto deploy_cfg = YAML::LoadFile((root / "deploy/robots/a2/config/deploy.yaml").string());
+    auto check_sticks = [&](float ly, float lx, float rx, float ry,
+                            const std::array<float, 3>& full_command) {
+        auto input = std::make_shared<JoystickSensorFrame>();
+        input->msg_.imu_state().quaternion()[0] = 1;
+        REMOTE_DATA_RX remote{};
+        remote.RF_RX.ly = ly; remote.RF_RX.lx = lx;
+        remote.RF_RX.rx = rx; remote.RF_RX.ry = ry;
+        input->joystick.extract(remote);
+        auto articulation = std::make_shared<unitree::BaseArticulation<std::shared_ptr<JoystickSensorFrame>>>(input);
+        isaaclab::ManagerBasedRLEnv env(deploy_cfg, articulation);
+        for (const auto scales : {std::array<float, 2>{.5f, .25f},
+                                  std::array<float, 2>{1, 1},
+                                  std::array<float, 2>{0, 0}}) {
+            articulation->data.velocity_scales = scales;
+            const auto command = isaaclab::mdp::velocity_commands(&env, YAML::Node{});
+            check(command.size() == 3);
+            for (int i = 0; i < 3; ++i)
+                near(command[i], full_command[i] * .03f * scales[i == 2 ? 1 : 0]);
+        }
+    };
+    check_sticks(0, 0, 0, 0, {0, 0, 0});
+    check_sticks(1, 0, 0, 0, {.6f, 0, 0});
+    check_sticks(-1, 0, 0, 0, {-.6f, 0, 0});
+    check_sticks(0, -1, 0, 0, {0, 0, 1});
+    check_sticks(0, 1, 0, 0, {0, 0, -1});
+    check_sticks(0, 0, -1, 0, {0, .4f, 0});
+    check_sticks(0, 0, 1, 0, {0, -.4f, 0});
+    check_sticks(0, 0, 0, 1, {0, 0, 0});
+    check_sticks(0, 0, 0, -1, {0, 0, 0});
+    check_sticks(1, -1, 1, 1, {.6f, -.4f, 1});
+    check_sticks(-1, 1, -1, -1, {-.6f, .4f, -1});
+    check_sticks(.005f, -.005f, .005f, 1, {0, 0, 0});
+
     // Both shoulder buttons must not speed up while RT's SDK filter is rising.
     a2_controls::SpeedControl chord_speed(speed_cfg);
     UnitreeJoystick chord_joy;
@@ -97,6 +144,33 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 64; ++i) defaults.extract(axes);
     check(defaults.RT.pressed);
 
+    // Snapshot the SDK's filtered input without filtering it again or aliasing
+    // the live sensor. This also covers SDK versions without copy assignment.
+    auto sensor = std::make_shared<JoystickSensorFrame>();
+    sensor->msg_.imu_state().quaternion()[0] = 1;
+    unitree::BaseArticulation<std::shared_ptr<JoystickSensorFrame>> robot(sensor);
+    check(robot.data.joystick != nullptr);
+    REMOTE_DATA_RX packet{};
+    for (int frame = 0; frame < 128; ++frame) {
+        const bool pressed = frame < 64;
+        packet.RF_RX.btn.components.Start = pressed;
+        packet.RF_RX.btn.components.R2 = pressed;
+        packet.RF_RX.rx = pressed ? 1.0f : 0.0f;
+        const float previous_axis = robot.data.joystick->rx();
+        sensor->joystick.extract(packet);
+        near(robot.data.joystick->rx(), previous_axis);
+        for (int read = 0; read < 2; ++read) {
+            robot.update();
+            const auto* snapshot = robot.data.joystick;
+            check(snapshot != &sensor->joystick);
+            check(snapshot->start.pressed == pressed);
+            check(snapshot->start.on_pressed == (frame == 0));
+            check(snapshot->start.on_released == (frame == 64));
+            check(snapshot->RT.pressed == sensor->joystick.RT.pressed);
+            near(robot.data.joystick->rx(), sensor->joystick.rx());
+        }
+    }
+
     for (const auto name : {"FixStand", "LowStand"}) {
         FixedPose pose(fsm[name]);
         std::vector<float> measured(12, .25f);
@@ -109,5 +183,5 @@ int main(int argc, char** argv) {
         pose.start(measured);
         check(pose.sample(0) == measured); // Re-entry uses newly measured angles.
     }
-    std::cout << "PASS: Start/A, speed steps/limits, SDK defaults, shutdown priority and fixed-pose interpolation\n";
+    std::cout << "PASS: Start/A, stick velocity mapping, speed steps/limits, SDK defaults and snapshots, shutdown priority and fixed-pose interpolation\n";
 }

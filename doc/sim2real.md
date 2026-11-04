@@ -94,6 +94,36 @@ bash scripts/sim2real.sh --check-policy
 정책 검사에서 `Policy check complete (no DDS channels opened).`가 출력되면 준비 완료다.
 위 확인 명령은 모터를 구동하지 않는다.
 
+### unitree-a2-pc2의 사용자 경로 설치
+
+이 PC는 `x86_64`이며, C++ sim2real 실행에는 Conda나 NVIDIA GPU가 필요하지 않다.
+SDK는 `~/control_ws/unitree_sdk2`에 소스를 두고
+`~/.local/unitree_sdk2-21d0a3b`에 설치했다.
+GitHub 다운로드를 사용할 수 없어 로컬 공식 SDK 압축파일의
+`21d0a3b2c46ee48c8fdf2783becb6be3beb0a59b` 버전을 사용했다.
+이는 위 권장 커밋과 다른 버전이며, 압축파일의 모든 파일을 해당 공식 커밋의
+Git blob 해시와 대조했다. 출처는 SDK 소스의 `SOURCE_VERIFICATION.json`에 기록했다.
+제어기의 조이스틱 입력 복사는 이 SDK에서도 지원하는 복사 생성 방식을 사용한다.
+
+이 설치를 사용해 다시 빌드하려면:
+
+```bash
+cd "$HOME/control_ws/edu_rl_mjlab"
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_OFFLINE_TESTS=ON \
+  -DCMAKE_PREFIX_PATH="$HOME/.local/unitree_sdk2-21d0a3b" \
+  -DCMAKE_EXE_LINKER_FLAGS=-Wl,--disable-new-dtags
+cmake --build deploy/robots/a2/build -j2
+ctest --test-dir deploy/robots/a2/build --output-on-failure
+bash scripts/sim2real.sh --check-policy
+```
+
+마지막 CMake 옵션은 이 PC의 ROS/SLAM `LD_LIBRARY_PATH`보다 빌드에 사용한
+SDK 라이브러리 경로를 우선하도록 한다. `ldd`에서 `libddsc`와 `libddscxx`가
+모두 위 사용자 설치 경로를 가리키는지 확인한다.
+`network.interface`는 실기 연결에 사용할 인터페이스를 확인한 후 설정한다.
+
 ## 6. 로봇과 네트워크 준비
 
 A2를 저수준/debug 모드로 전환하고 다른 모터 제어 프로그램을 종료한다.
@@ -178,8 +208,9 @@ bash scripts/sim2real.sh
 | 스틱 | 명령 | 배율 0.5에서 범위 | 배율 1.0에서 범위 |
 | --- | --- | --- | --- |
 | 왼쪽 상하 | 전후 선속도 | ±0.3 m/s | ±0.6 m/s |
-| 왼쪽 좌우 | 좌우 선속도 | ±0.2 m/s | ±0.4 m/s |
-| 오른쪽 좌우 | 회전 각속도 | ±0.5 rad/s | ±1.0 rad/s |
+| 왼쪽 좌우 | 회전 각속도 (yaw) | ±0.5 rad/s | ±1.0 rad/s |
+| 오른쪽 좌우 | 좌우 선속도 (Y) | ±0.2 m/s | ±0.4 m/s |
+| 오른쪽 상하 | 사용하지 않음 | — | — |
 
 속도 배율은 선속도·각속도 각각 **초기 0.5, 누를 때마다 ±0.1, 범위 0~1**이다.
 상태를 전환해도 유지되며 프로그램을 다시 시작하면 초기화된다. 스틱 중립에서는 이동 명령이 0이다.

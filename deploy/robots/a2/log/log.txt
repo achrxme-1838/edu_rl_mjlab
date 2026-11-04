@@ -1,0 +1,87 @@
+[2026-11-04 15:44:47] [info] Policy ready: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR/policy.onnx
+[2026-11-04 15:44:47] [info] DDS network interface: eth0
+[2026-11-04 15:44:47] [critical] The other process is using the lowcmd channel, please close it first.
+[2026-11-04 15:44:50] [info] Waiting for connection to robot...
+[2026-11-04 15:44:51] [info] Connected to robot.
+[2026-11-04 15:44:51] [info] Initializing State_Passive ...
+[2026-11-04 15:44:51] [info] Initializing State_FixStand ...
+[2026-11-04 15:44:51] [info] Initializing State_Velocity ...
+[2026-11-04 15:44:51] [info] Policy directory: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR
+[2026-11-04 15:44:51] [info] Initializing State_LowStand ...
+[2026-11-04 15:44:51] [info] FSM: Start FixStand
+[2026-11-04 15:44:58] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:44:58] [info] FSM: Change state from FixStand to Passive
+[2026-11-04 15:44:58] [info] R1 + R2: stopping controller with Passive damping.
+[2026-11-04 15:44:58] [info] Controller stopped.
+[2026-11-04 15:46:16] [info] Policy ready: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR/policy.onnx
+[2026-11-04 15:46:16] [info] DDS network interface: eth0
+[2026-11-04 15:46:16] [info] Waiting for connection to robot...
+[2026-11-04 15:46:16] [info] Connected to robot.
+[2026-11-04 15:46:16] [info] Initializing State_Passive ...
+[2026-11-04 15:46:16] [info] Initializing State_FixStand ...
+[2026-11-04 15:46:16] [info] Initializing State_Velocity ...
+[2026-11-04 15:46:16] [info] Policy directory: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR
+[2026-11-04 15:46:16] [info] Initializing State_LowStand ...
+[2026-11-04 15:46:16] [info] FSM: Start FixStand
+[2026-11-04 15:47:23] [info] FSM: Change state from FixStand to Velocity
+[2026-11-04 15:47:51] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:47:51] [info] Speed scale: linear 0.7, angular 0.5
+[2026-11-04 15:47:53] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:47:53] [info] Speed scale: linear 0.5, angular 0.5
+[2026-11-04 15:47:54] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:47:54] [info] Speed scale: linear 0.7, angular 0.5
+[2026-11-04 15:47:55] [info] Speed scale: linear 0.8, angular 0.5
+[2026-11-04 15:47:56] [info] Speed scale: linear 0.7, angular 0.5
+[2026-11-04 15:47:56] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:47:57] [info] Speed scale: linear 0.7, angular 0.5
+[2026-11-04 15:48:01] [info] Speed scale: linear 0.8, angular 0.5
+[2026-11-04 15:48:01] [info] Speed scale: linear 0.9, angular 0.5
+[2026-11-04 15:48:02] [info] Speed scale: linear 0.8, angular 0.5
+[2026-11-04 15:48:03] [info] Speed scale: linear 0.9, angular 0.5
+[2026-11-04 15:48:04] [info] Speed scale: linear 0.9, angular 0.6
+[2026-11-04 15:48:06] [info] Speed scale: linear 1.0, angular 0.6
+[2026-11-04 15:48:06] [info] Speed scale: linear 1.0, angular 0.7
+[2026-11-04 15:48:10] [info] Speed scale: linear 0.9, angular 0.7
+[2026-11-04 15:48:10] [info] Speed scale: linear 0.8, angular 0.7
+[2026-11-04 15:48:12] [info] Speed scale: linear 0.9, angular 0.7
+[2026-11-04 15:48:12] [info] Speed scale: linear 1.0, angular 0.7
+[2026-11-04 15:48:13] [info] Speed scale: linear 1.0, angular 0.8
+[2026-11-04 15:48:13] [info] Speed scale: linear 1.0, angular 0.9
+[2026-11-04 15:48:13] [info] Speed scale: linear 0.9, angular 0.9
+[2026-11-04 15:48:14] [info] Speed scale: linear 0.8, angular 0.9
+[2026-11-04 15:48:14] [info] Speed scale: linear 0.7, angular 0.9
+[2026-11-04 15:48:15] [info] Speed scale: linear 0.7, angular 1.0
+[2026-11-04 15:48:36] [info] Speed scale: linear 0.8, angular 1.0
+[2026-11-04 15:50:20] [info] FSM: Change state from Velocity to FixStand
+[2026-11-04 15:50:22] [info] FSM: Change state from FixStand to LowStand
+[2026-11-04 15:50:24] [info] Speed scale: linear 0.9, angular 1.0
+[2026-11-04 15:50:24] [info] FSM: Change state from LowStand to Passive
+[2026-11-04 15:50:24] [info] R1 + R2: stopping controller with Passive damping.
+[2026-11-04 15:50:25] [info] Controller stopped.
+[2026-11-04 15:57:30] [info] Policy ready: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR/policy.onnx
+[2026-11-04 15:57:30] [info] DDS network interface: eth0
+[2026-11-04 15:57:31] [info] Waiting for connection to robot...
+[2026-11-04 15:57:31] [info] Connected to robot.
+[2026-11-04 15:57:31] [info] Initializing State_Passive ...
+[2026-11-04 15:57:31] [info] Initializing State_FixStand ...
+[2026-11-04 15:57:31] [info] Initializing State_Velocity ...
+[2026-11-04 15:57:31] [info] Policy directory: /home/unitree/control_ws/edu_rl_mjlab/networks/01_EDU_A2_STAIR
+[2026-11-04 15:57:31] [info] Initializing State_LowStand ...
+[2026-11-04 15:57:31] [info] FSM: Start FixStand
+[2026-11-04 15:57:39] [info] FSM: Change state from FixStand to Velocity
+[2026-11-04 15:57:40] [info] Speed scale: linear 0.6, angular 0.5
+[2026-11-04 15:57:40] [info] Speed scale: linear 0.7, angular 0.5
+[2026-11-04 15:57:41] [info] Speed scale: linear 0.7, angular 0.6
+[2026-11-04 15:57:41] [info] Speed scale: linear 0.8, angular 0.6
+[2026-11-04 15:57:42] [info] Speed scale: linear 0.8, angular 0.7
+[2026-11-04 15:57:54] [info] Speed scale: linear 0.9, angular 0.7
+[2026-11-04 15:58:00] [info] Speed scale: linear 1.0, angular 0.7
+[2026-11-04 15:58:04] [info] Speed scale: linear 0.9, angular 0.7
+[2026-11-04 15:58:05] [info] Speed scale: linear 0.8, angular 0.7
+[2026-11-04 15:58:07] [info] FSM: Change state from Velocity to FixStand
+[2026-11-04 15:58:10] [info] FSM: Change state from FixStand to Velocity
+[2026-11-04 15:58:11] [info] FSM: Change state from Velocity to LowStand
+[2026-11-04 15:58:15] [info] Speed scale: linear 0.9, angular 0.7
+[2026-11-04 15:58:15] [info] FSM: Change state from LowStand to Passive
+[2026-11-04 15:58:15] [info] R1 + R2: stopping controller with Passive damping.
+[2026-11-04 15:58:15] [info] Controller stopped.

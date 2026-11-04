@@ -6,6 +6,7 @@
 #include "isaaclab/assets/articulation/articulation.h"
 #include <functional>
 #include <array>
+#include <optional>
 
 namespace unitree
 {
@@ -28,13 +29,14 @@ public:
     BaseArticulation(LowStatePtr lowstate_, std::function<std::array<float, 2>()> scales = {})
     : lowstate(lowstate_), read_scales_(std::move(scales))
     {
-        data.joystick = &joystick_snapshot;
+        data.joystick = &*joystick_snapshot;
     }
 
     void update() override
     {
         std::lock_guard<std::mutex> lock(lowstate->mutex_);
-        joystick_snapshot = lowstate->joystick;
+        // Newer SDK joystick types are copy-constructible but not assignable.
+        data.joystick = &joystick_snapshot.emplace(lowstate->joystick);
         if (read_scales_) data.velocity_scales = read_scales_();
         // base_angular_velocity
         for(int i(0); i<3; i++) {
@@ -56,7 +58,7 @@ public:
     }
 
     LowStatePtr lowstate;
-    unitree::common::UnitreeJoystick joystick_snapshot;
+    std::optional<unitree::common::UnitreeJoystick> joystick_snapshot{std::in_place};
 private:
     std::function<std::array<float, 2>()> read_scales_;
 };

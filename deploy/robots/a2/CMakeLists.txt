@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(yaml-cpp REQUIRED)
+find_package(unitree_sdk2 REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(ONNXRUNTIME_DIR "${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0")
@@ -14,8 +15,6 @@ endif()
 
 include_directories(
   /usr/include/eigen3
-  /usr/local/include/ddscxx
-  /usr/local/include/iceoryx/v2.0.2
   include
   ${ONNXRUNTIME_DIR}/include
   ${PROJECT_SOURCE_DIR}/../../include/
