@@ -13,18 +13,21 @@ sys.path.insert(0, str(ROOT))
 
 
 def main():
+    from deploy.configs.a2 import load_config, resolve_path
+
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, help="Python file defining A2DeployCfg")
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        default=ROOT / "networks/01_EDU_A2_STAIR/model_10001.pt",
+        default=None,
     )
     parser.add_argument("--terrain", choices=("flat", "stairs"), default="stairs")
     parser.add_argument(
         "--command",
         nargs=3,
         type=float,
-        default=(0.4, 0.0, 0.0),
+        default=None,
         metavar=("VX", "VY", "WZ"),
     )
     parser.add_argument("--stair-height", type=float, default=0.10)
@@ -51,6 +54,9 @@ def main():
         "--check", action="store_true", help="Exit nonzero if headless validation fails"
     )
     args = parser.parse_args()
+    deploy_cfg = load_config(args.config)
+    args.checkpoint = args.checkpoint or resolve_path(deploy_cfg.policy.checkpoint)
+    args.command = deploy_cfg.mj.command if args.command is None else args.command
     if not args.headless and (args.check or args.report or args.video):
         parser.error("--check, --report and --video require --headless")
     if args.steps < 1:
@@ -84,9 +90,13 @@ def main():
         step_width=args.stair_width,
         step_count=args.stair_count,
     )
-    policy = EduA2Policy(args.checkpoint, device=device)
+    policy = EduA2Policy(args.checkpoint, device=device, deploy_cfg=deploy_cfg)
     cfg = make_env_cfg(
-        terrain=args.terrain, command=args.command, course=course, seed=args.seed
+        terrain=args.terrain,
+        command=args.command,
+        course=course,
+        seed=args.seed,
+        deploy_cfg=deploy_cfg,
     )
     raw = ManagerBasedRlEnv(
         cfg, device=device, render_mode="rgb_array" if args.video else None

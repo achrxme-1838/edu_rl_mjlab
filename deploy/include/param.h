@@ -16,6 +16,7 @@
 #include <memory>
 #include <iomanip>
 #include "policy_bundle.h"
+#include "python_config.h"
 
 /* ---------- logger ---------- */
 namespace spdlog
@@ -43,7 +44,7 @@ inline std::string VERSION = "1.0.0.1";
 inline std::filesystem::path bin_path;
 inline std::filesystem::path proj_dir;
 inline std::filesystem::path repo_dir;
-inline std::filesystem::path config_dir;
+inline std::filesystem::path config_path;
 inline YAML::Node config;
 inline YAML::Node deploy_config;
 
@@ -59,48 +60,18 @@ inline std::filesystem::path get_bin_path() {
     }
 }
 
-/* ---------- config.yaml ---------- */
-inline void load_config_file()
+inline void locate_project()
 {
-    assert(std::filesystem::exists(bin_path)); // run param::helper before this function
-    if(bin_path.parent_path().filename() == "bin" || bin_path.parent_path().filename() == "build")
-    {
-        proj_dir = bin_path.parent_path().parent_path();
-        config_dir = proj_dir / "config";
-    }
-    else
-    {
-        proj_dir = bin_path.parent_path();
-        config_dir = proj_dir;
-    }
-
+    proj_dir = bin_path.parent_path();
+    if (proj_dir.filename() == "bin" || proj_dir.filename() == "build")
+        proj_dir = proj_dir.parent_path();
     repo_dir = proj_dir.parent_path().parent_path().parent_path();
-
-    try {
-        std::string config_file = (config_dir / "config.yaml").string();
-        if(std::filesystem::exists(config_file))
-        {
-            config = YAML::LoadFile(config_file);
-        }
-    } catch (const YAML::BadFile& e) {
-        spdlog::error("Failed to load config.yaml: {}", e.what());
-        exit(1);
-    }
-}
-
-inline std::filesystem::path parser_policy_dir(std::filesystem::path policy_dir)
-{
-    policy_dir = policy_bundle::resolve(repo_dir, policy_dir);
-    spdlog::info("Policy directory: {}", policy_dir.string());
-    return policy_dir;
 }
 
 inline void load_deploy_config()
 {
-    deploy_config = YAML::LoadFile((config_dir / "deploy.yaml").string());
-    const auto directory = deploy_config["policy_dir"];
-    if (!directory.IsScalar() || directory.as<std::string>().empty())
-        throw std::runtime_error("deploy.yaml must define policy_dir as a nonempty folder path");
+    config = a2_config::load(repo_dir, config_path);
+    deploy_config = config["deploy"];
 }
 
 /* ---------- Command Line Parameters ---------- */
@@ -110,14 +81,15 @@ namespace po = boost::program_options;
 inline po::variables_map helper(int argc, char** argv) 
 {
     bin_path = get_bin_path();
-    load_config_file();
+    locate_project();
 
     po::options_description desc("Unitree Controller");
     desc.add_options()
         ("help,h", "produce help message")
         ("version,v", "show version")
         ("log", "record log file")
-        ("network,n", po::value<std::string>(), "override config.yaml network.interface")
+        ("network,n", po::value<std::string>(), "override Python config network.interface")
+        ("config", po::value<std::string>(), "Python file defining A2DeployCfg")
         ("check-policy", "validate the copied ONNX policy, then exit without DDS")
         ;
 
@@ -147,6 +119,7 @@ inline po::variables_map helper(int argc, char** argv)
         spdlog::create_logger(proj_dir.string() + "/log/log.txt");
     }
 
+    if (vm.count("config")) config_path = vm["config"].as<std::string>();
     return vm;
 }
 

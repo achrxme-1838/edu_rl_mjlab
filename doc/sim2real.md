@@ -7,6 +7,8 @@
 
 C++ Unitree SDK2와 ONNX Runtime으로 제어기를 실행한다.
 필요한 빌드 도구는 CMake, C++ 컴파일러, Boost, yaml-cpp이며 ONNX Runtime은 저장소에 포함되어 있다.
+공통 cfg가 `mjlab_wrapper.mdp`를 통해 mjlab 관측 함수를 참조하므로, 설정 로딩용 Python 환경에는
+mjlab과 그 의존성도 설치해야 한다. Python 환경 준비는 [설치 문서](setup_en.md)를 참고한다.
 
 ```bash
 uname -m  # aarch64 확인
@@ -62,15 +64,24 @@ ls /usr/local/include/unitree/dds_wrapper/robots/g1/g1.h
 `exported/<체크포인트 이름>/policy.onnx`가 생성된다.
 이 파일을 NX (a2)의 `edu_rl_mjlab/networks/01_EDU_A2_STAIR/`에 복사해 사용한다.
 
-[deploy/robots/a2/config/deploy.yaml](../deploy/robots/a2/config/deploy.yaml)의
-`policy_dir`을 사용할 **폴더 경로**로 지정한다.
+[`deploy/configs/a2/config.py`](../deploy/configs/a2/config.py)의 `PolicyCfg.onnx`에
+사용할 **ONNX 파일 경로**를 지정한다. sim2sim의 체크포인트는 같은 클래스의
+`checkpoint`에서 선택한다.
 
-```yaml
-policy_dir: networks/01_EDU_A2_STAIR/
+```python
+@dataclass(frozen=True)
+class PolicyCfg:
+    checkpoint: str = "networks/01_EDU_A2_STAIR/model_10001.pt"
+    onnx: str = "networks/01_EDU_A2_STAIR/policy.onnx"
+    hidden_dims: tuple[int, ...] = (512, 256, 128)
 ```
 
-상대 경로는 저장소 루트 기준이며 해당 폴더의 `policy.onnx`를 읽는다.
-정책 파일이나 설정을 바꿀 때는 제어기를 종료하고, 수정 후 다시 실행한다.
+상대 경로는 저장소 루트 기준이다. 설정 변경 후 제어기를 다시 실행하면 반영된다.
+C++ 실행 파일은 시작 시 mjlab이 설치된 Python으로 공통 cfg를 읽는다.
+래퍼가 호출하는 `from mjlab.envs import mdp`가 동작하는 환경을 CMake의 `Python3_EXECUTABLE`로 지정한다.
+저장소를 배포할 때 `deploy/configs/a2/`와 `mjlab_wrapper/`를 함께 복사한다.
+실행 시에는 `A2_PYTHON=/path/to/mjlab/bin/python`으로 다른 Python을 선택할 수도 있다.
+설정용 YAML과 수동 변환 단계는 없다. 처음 이번 버전으로 전환할 때는 C++을 다시 빌드한다.
 
 ## 5. C++ 빌드와 확인
 
@@ -78,9 +89,12 @@ NX (a2)에서 빌드한다.
 
 ```bash
 cd "$HOME/control_ws/edu_rl_mjlab"
+conda activate mjlab  # 해당 PC의 mjlab 설치 환경 이름으로 변경
+python -I -c "from mjlab.envs import mdp"
 
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
   -DCMAKE_BUILD_TYPE=Release \
+  -DPython3_EXECUTABLE="$(command -v python)" \
   -DBUILD_OFFLINE_TESTS=ON
 cmake --build deploy/robots/a2/build -j2
 
@@ -96,7 +110,8 @@ bash scripts/sim2real.sh --check-policy
 
 ### unitree-a2-pc2의 사용자 경로 설치
 
-이 PC는 `x86_64`이며, C++ sim2real 실행에는 Conda나 NVIDIA GPU가 필요하지 않다.
+이 PC는 `x86_64`이며, C++ 추론에는 NVIDIA GPU가 필요하지 않다.
+공통 Python cfg를 직접 로드하는 현재 버전에서는 mjlab 설치 환경을 별도로 준비해야 한다.
 SDK는 `~/control_ws/unitree_sdk2`에 소스를 두고
 `~/.local/unitree_sdk2-21d0a3b`에 설치했다.
 GitHub 다운로드를 사용할 수 없어 로컬 공식 SDK 압축파일의
@@ -109,8 +124,10 @@ Git blob 해시와 대조했다. 출처는 SDK 소스의 `SOURCE_VERIFICATION.js
 
 ```bash
 cd "$HOME/control_ws/edu_rl_mjlab"
+conda activate mjlab
 cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
   -DCMAKE_BUILD_TYPE=Release \
+  -DPython3_EXECUTABLE="$(command -v python)" \
   -DBUILD_OFFLINE_TESTS=ON \
   -DCMAKE_PREFIX_PATH="$HOME/.local/unitree_sdk2-21d0a3b" \
   -DCMAKE_EXE_LINKER_FLAGS=-Wl,--disable-new-dtags
@@ -136,12 +153,14 @@ ip -br link
 ip -br addr
 ```
 
-[deploy/robots/a2/config/config.yaml](../deploy/robots/a2/config/config.yaml)의
-`network.interface`에 해당 이름을 저장한다. 아래 `eth0`는 예시이며 실제 이름으로 바꾼다.
+[`deploy/configs/a2/config.py`](../deploy/configs/a2/config.py)의 `NetworkCfg.interface`에
+해당 이름을 저장한다. 아래 `eth0`는 예시이며 실제 이름으로 바꾼다.
 
-```yaml
-network:
-  interface: "eth0"
+```python
+@dataclass(frozen=True)
+class NetworkCfg:
+    interface: str = "eth0"
+    domain_id: int = 0
 ```
 
 `a2_ctrl`과 `real_joint_test` 모두 이 설정을 사용한다.
@@ -217,24 +236,26 @@ bash scripts/sim2real.sh
 
 ### 설정 변경
 
-| 파일 | 수정 항목 |
+모든 배포 설정은 [`deploy/configs/a2/config.py`](../deploy/configs/a2/config.py)에서 수정한다.
+
+| 클래스 | 수정 항목 |
 | --- | --- |
-| [deploy.yaml](../deploy/robots/a2/config/deploy.yaml) | `policy_dir`: 정책 폴더, `commands.base_velocity.speed_control`: 속도 배율 |
-| [config.yaml](../deploy/robots/a2/config/config.yaml) | `network.interface`: 통신 인터페이스, `FSM.initial`: 시작 상태, `FixStand`·`LowStand`: 고정 자세와 이동 시간 |
+| `PolicyCfg` | `onnx`: 실기 정책 파일, `checkpoint`: sim2sim 체크포인트 |
+| `NetworkCfg` | `interface`, `domain_id`: DDS 통신 |
+| `ObservationsCfg` | 선언 순서, 각 항목의 func·params·scale·clip, `history_length` |
+| `JointsCfg` / `ActionsCfg` | policy 관절 순서·기본 자세, action scale·최종 목표각 clip |
+| `CommandsCfg` | 속도 범위, `linear` / `angular`의 초기 배율·증감량·범위 |
+| `RealCfg` | SDK 관절 순서·정책 PD, 기립 PD·시간·낮은 자세, Passive 감쇠·시작 상태 |
 
-속도 배율 설정:
+예를 들어 기본 속도 배율은 `SpeedScaleCfg.initial=0.5`, 증감량은 `step=0.1`이다.
+관측 필드 이름은 자유롭게 지정할 수 있으며 C++ 계산 함수는 `func`에서 선택한다.
+`RealCfg.stand_duration=2.0`은 고정 자세 이동 시간이며, 기본 고정 자세는
+`JointsCfg.default_pos`를 SDK 순서로 자동 변환한다. `RealCfg.low_stand_pos`와
+게인 배열은 `RealCfg.joint_names` 순서(FR → FL → RR → RL, hip/thigh/calf)다.
 
-```yaml
-commands:
-  base_velocity:
-    speed_control:
-      linear: {initial: 0.5, step: 0.1, min: 0.0, max: 1.0}
-      angular: {initial: 0.5, step: 0.1, min: 0.0, max: 1.0}
-```
-
-고정 자세의 `ts: [0, 2]`는 이동 시간, `qs` 마지막 배열은 목표 관절각(rad), `kp`·`kd`는 게인이다.
-`qs` 첫 항목 `[]`는 진입 시 측정 자세다. 배열 순서는 SDK 모터 순서인
-FR → FL → RR → RL, 각 다리의 hip/thigh/calf다.
+별도 Python cfg를 선택하려면 두 실행 파일 모두 `--config /path/to/config.py`를 사용한다.
+이 파일은 `A2DeployCfg`를 정의해야 한다. `dataclasses.replace`로
+일부 값만 바꾸는 예시는 [공통 설정 문서](deploy_config.md)에 있다.
 
 ### 정지와 종료
 

@@ -19,8 +19,11 @@ bash scripts/sim2sim.sh --terrain flat
 
 The default course has five 10 cm steps, a 2 m landing, and descending steps.
 The default checkpoint is `networks/01_EDU_A2_STAIR/model_10001.pt`.
-The environment, actor loader, and rollout reporting live in
-`src/tasks/velocity/config/a2/`.
+Both sim2sim and sim2real use the Python classes in
+[`deploy/configs/a2/config.py`](deploy/configs/a2/config.py). Policy paths, network,
+observations/history, actions, joint orders and gains are defined there.
+The mjlab environment adapter, actor loader and rollout reporting live in
+`src/tasks/velocity/config/a2/`. See [the configuration guide](doc/deploy_config.md).
 See [configuration and measured results](doc/sim2sim.md) for observation order,
 motor settings, recording options, and known rollout limitations.
 
@@ -52,14 +55,20 @@ settings for these checks; no training entry point uses them.
 
 `deploy/robots/a2/` runs the EDU actor through the existing C++/DDS controller.
 Run `play` in `edu_rl_lab` to export ONNX, then manually copy `policy.onnx` to
-`networks/01_EDU_A2_STAIR/` (or another policy folder). Set `policy_dir` in
-`deploy/robots/a2/config/deploy.yaml` to select the folder; the controller only loads ONNX and does
-not convert checkpoints. `deploy/robots/a2/config/deploy.yaml` matches EDU
-observations, history, joint order, PD, and action processing. See
+`networks/01_EDU_A2_STAIR/` (or another policy folder). Set `PolicyCfg.onnx` in
+`deploy/configs/a2/config.py` to the ONNX **file** path; `PolicyCfg.checkpoint`
+selects the sim2sim checkpoint. The controller only loads ONNX and does not convert
+checkpoints. The config uses `from mjlab_wrapper import mdp`; the
+[local observation catalog](mjlab_wrapper/mdp/README.md) exposes signatures and delegates
+to mjlab. Startup uses
+the mjlab Python selected with CMake's `Python3_EXECUTABLE` (or the `A2_PYTHON`
+runtime override). Inference and DDS run entirely in C++. See
 [the sim2real guide](doc/sim2real.md) for copying and running the policy on NX (a2).
 
 ```bash
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
+conda activate mjlab
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON \
+  -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build deploy/robots/a2/build -j2
 ctest --test-dir deploy/robots/a2/build --output-on-failure
 bash scripts/sim2real.sh --check-policy
@@ -70,7 +79,7 @@ The offline probe compares the production C++ observation/ONNX/action path with
 Python using synthetic sensor frames. It opens no DDS channels. Physical robot
 walking and C++ DDS simulation rollouts have not been tested.
 
-After configuring `network.interface` in `deploy/robots/a2/config/config.yaml`,
+After configuring `network.interface` in `deploy/configs/a2/config.py`,
 run `bash scripts/sim2real.sh` on NX (a2). Add `--log` to save the controller log.
 
 The SDK's `g1`/`go2` namespaces are shared DDS wrappers used by A2.
@@ -79,7 +88,7 @@ The controller automatically moves to the fixed standing pose in 2 seconds.
 **Start** toggles fixed standing / policy; **A** selects the lower fixed pose.
 From the lower pose, Start returns to normal standing before policy can be selected.
 **R1 / L1** increase / decrease the linear speed scale; **R2 / L2** adjust the angular scale.
-Each press changes the scale by 0.1 (initial 0.5, range 0–1), configured in `deploy.yaml`.
+Each press changes the scale by 0.1 (initial 0.5, range 0–1), configured by `CommandsCfg.linear` / `angular`.
 Press **R1 + R2** together to exit `a2_ctrl`: stop the policy, send Passive damping
 for 100 ms, then close the controller. Exit takes priority over increasing speed.
 
@@ -93,13 +102,16 @@ Support or suspend the robot: this tool has no balancing policy.
 See [setup and controls](doc/real_joint_test.md) before running.
 
 ```bash
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+conda activate mjlab
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
+  -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
-# Set network.interface in deploy/robots/a2/config/config.yaml; stop other controllers first.
+# Set network.interface in deploy/configs/a2/config.py; stop other controllers first.
 ./deploy/robots/a2/build/real_joint_test
 ```
 
-This diagnostic does not require Python, Conda, or ONNX Runtime.
+This diagnostic needs a Python environment with mjlab to read the common config
+at startup. The C++ joint test itself does not use ONNX Runtime.
 
 ## Acknowledgements
 

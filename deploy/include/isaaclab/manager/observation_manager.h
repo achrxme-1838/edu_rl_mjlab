@@ -114,11 +114,11 @@ protected:
         for(auto it = group_cfg.begin(); it != group_cfg.end(); ++it)
         {
             std::string key = it->first.as<std::string>();
-            if(it->first.as<std::string>() == "scale_first") {
+            if(key == "scale_first" && it->second.IsScalar()) {
                 scale_first = it->second.as<bool>();
                 continue;
             }
-            if(it->first.as<std::string>() == "use_gym_history") { // set only once
+            if(key == "use_gym_history" && it->second.IsScalar()) { // set only once
                 use_gym_history = it->second.as<bool>();
                 continue;
             }
@@ -130,9 +130,14 @@ protected:
             term_cfg.scale_first = scale_first;
             term_cfg.history_length = term_yaml_cfg["history_length"].as<int>(1);
 
-            auto term_name = it->first.as<std::string>();
-            if(observations_map()[term_name] == nullptr) {
-                throw std::runtime_error("Observation term '" + term_name + "' is not registered.");
+            if (!term_yaml_cfg["func"].IsScalar()) {
+                throw std::runtime_error("Observation term '" + key + "' must specify func.");
+            }
+            const auto func_name = term_yaml_cfg["func"].as<std::string>();
+            const auto function = observations_map().find(func_name);
+            if (function == observations_map().end() || function->second == nullptr) {
+                throw std::runtime_error("Observation function '" + func_name +
+                    "' for term '" + key + "' is not registered.");
             }
 
             if(!term_yaml_cfg["scale"].IsNull()) {
@@ -141,7 +146,7 @@ protected:
             if(!term_yaml_cfg["clip"].IsNull()) {
                 term_cfg.clip = term_yaml_cfg["clip"].as<std::vector<float>>();
             }
-            term_cfg.func = observations_map()[term_name];   
+            term_cfg.func = function->second;
 
 
             auto obs = term_cfg.func(this->env, term_cfg.params);

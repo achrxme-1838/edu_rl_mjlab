@@ -9,7 +9,7 @@ import mujoco
 import torch
 from mjlab.actuator import DcMotorActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
-from mjlab.envs import ManagerBasedRlEnvCfg, mdp
+from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -22,17 +22,16 @@ from mjlab.tasks.velocity.mdp.velocity_command import (
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.viewer import ViewerConfig
 
+from deploy.configs.a2 import OBSERVATION_FUNCTIONS, load_config, validate
 from src.assets.robots.unitree_a2.a2_constants import get_a2_robot_cfg
 
-POLICY_JOINT_NAMES = tuple(
-    f"{leg}_{joint}_joint"
-    for joint in ("hip", "thigh", "calf")
-    for leg in ("FL", "FR", "RL", "RR")
-)
-DEFAULT_JOINT_POS = (0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1.0, 1.0, -1.5, -1.5, -1.5, -1.5)
-HISTORY_LENGTH = 5
-OBSERVATION_DIM = 225
-CONTROL_DT = 0.02
+DEPLOY_CFG = load_config()
+# Compatibility exports; the values are defined only in the deployment config.
+POLICY_JOINT_NAMES = DEPLOY_CFG.joints.names
+DEFAULT_JOINT_POS = DEPLOY_CFG.joints.default_pos
+HISTORY_LENGTH = DEPLOY_CFG.observations.history_length
+OBSERVATION_DIM = DEPLOY_CFG.observations.dimension
+CONTROL_DT = DEPLOY_CFG.control_dt
 
 
 class PolicyJointPositionAction(JointPositionAction):
@@ -43,11 +42,13 @@ class PolicyJointPositionAction(JointPositionAction):
     def process_actions(self, actions):
         super().process_actions(actions)
         # IsaacLab clips position targets AFTER applying scale and default offset.
-        self._processed_actions.clamp_(-100.0, 100.0)
+        self._processed_actions.clamp_(*self.cfg.target_clip)
 
 
 @dataclass(kw_only=True)
 class PolicyJointPositionActionCfg(JointPositionActionCfg):
+    target_clip: tuple[float, float] = DEPLOY_CFG.actions.clip
+
     def build(self, env):
         return PolicyJointPositionAction(self, env)
 
@@ -61,7 +62,7 @@ class FixedVelocityCommand(UniformVelocityCommand):
 
 @dataclass(kw_only=True)
 class FixedVelocityCommandCfg(UniformVelocityCommandCfg):
-    command: tuple[float, float, float] = (0.4, 0.0, 0.0)
+    command: tuple[float, float, float] = DEPLOY_CFG.mj.command
 
     def build(self, env):
         return FixedVelocityCommand(self, env)
@@ -126,57 +127,50 @@ def add_stairs(spec, course):
         )
 
 
-def make_env_cfg(*, terrain="flat", command=(0.4, 0.0, 0.0), course=None, seed=42):
+def make_env_cfg(*, terrain="flat", command=None, course=None, seed=42, deploy_cfg=None):
+    deploy = validate(deploy_cfg) if deploy_cfg is not None else load_config()
+    mj = deploy.mj
+    command = mj.command if command is None else command
     if terrain not in ("flat", "stairs"):
         raise ValueError(f"Unknown terrain: {terrain}")
     if len(command) != 3 or not all(math.isfinite(x) for x in command):
         raise ValueError("Command must contain three finite values: vx, vy, wz.")
     robot = deepcopy(get_a2_robot_cfg())
     robot.init_state = EntityCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.45),
-        joint_pos=dict(zip(POLICY_JOINT_NAMES, DEFAULT_JOINT_POS)),
+        pos=(0.0, 0.0, mj.initial_height),
+        joint_pos=dict(zip(deploy.joints.names, deploy.joints.default_pos)),
         joint_vel={".*": 0.0},
     )
+    motor_groups = {}
+    for name, kp, kd in zip(mj.joint_names, mj.kp, mj.kd):
+        motor_groups.setdefault((kp, kd), []).append(name)
     robot.articulation = EntityArticulationInfoCfg(
-        actuators=(
+        actuators=tuple(
             DcMotorActuatorCfg(
-                target_names_expr=(".*_joint",),
-                stiffness=25.0,
-                damping=0.5,
-                effort_limit=120.0,
-                saturation_effort=120.0,
-                velocity_limit=22.0,
-                armature=0.0,
-                frictionloss=0.0,
-            ),
+                target_names_expr=tuple(names),
+                stiffness=kp,
+                damping=kd,
+                effort_limit=mj.effort_limit,
+                saturation_effort=mj.saturation_effort,
+                velocity_limit=mj.velocity_limit,
+                armature=mj.armature,
+                frictionloss=mj.frictionloss,
+            )
+            for (kp, kd), names in motor_groups.items()
         ),
         soft_joint_pos_limit_factor=0.9,
     )
     joints = SceneEntityCfg(
-        "robot", joint_names=POLICY_JOINT_NAMES, preserve_order=True
+        "robot", joint_names=deploy.joints.names, preserve_order=True
     )
-    clip = (-100.0, 100.0)
-    terms = {
-        "base_ang_vel": ObservationTermCfg(func=mdp.base_ang_vel, scale=0.2, clip=clip),
-        "projected_gravity": ObservationTermCfg(func=mdp.projected_gravity, clip=clip),
-        "velocity_commands": ObservationTermCfg(
-            func=mdp.generated_commands,
-            params={"command_name": "base_velocity"},
-            clip=clip,
-        ),
-        "joint_pos_rel": ObservationTermCfg(
-            func=mdp.joint_pos_rel,
-            params={"asset_cfg": deepcopy(joints)},
-            clip=clip,
-        ),
-        "joint_vel_rel": ObservationTermCfg(
-            func=mdp.joint_vel_rel,
-            params={"asset_cfg": deepcopy(joints)},
-            scale=0.05,
-            clip=clip,
-        ),
-        "last_action": ObservationTermCfg(func=mdp.last_action, clip=clip),
-    }
+    terms = {}
+    for name, term in deploy.observations.terms.items():
+        params = deepcopy(term.params)
+        if OBSERVATION_FUNCTIONS[term.func].policy_joints:
+            params["asset_cfg"] = deepcopy(joints)
+        terms[name] = ObservationTermCfg(
+            func=term.func, params=params, scale=term.scale, clip=term.clip
+        )
     return ManagerBasedRlEnvCfg(
         seed=seed,
         scene=SceneCfg(
@@ -190,7 +184,7 @@ def make_env_cfg(*, terrain="flat", command=(0.4, 0.0, 0.0), course=None, seed=4
         observations={
             "actor": ObservationGroupCfg(
                 terms=terms,
-                history_length=HISTORY_LENGTH,
+                history_length=deploy.observations.history_length,
                 flatten_history_dim=True,
                 concatenate_terms=True,
                 enable_corruption=False,
@@ -200,9 +194,10 @@ def make_env_cfg(*, terrain="flat", command=(0.4, 0.0, 0.0), course=None, seed=4
         actions={
             "joint_pos": PolicyJointPositionActionCfg(
                 entity_name="robot",
-                actuator_names=POLICY_JOINT_NAMES,
+                actuator_names=deploy.joints.names,
                 preserve_order=True,
-                scale=0.25,
+                scale=deploy.actions.scale,
+                target_clip=deploy.actions.clip,
                 use_default_offset=True,
             )
         },
@@ -215,14 +210,14 @@ def make_env_cfg(*, terrain="flat", command=(0.4, 0.0, 0.0), course=None, seed=4
                 rel_standing_envs=0.0,
                 debug_vis=True,
                 ranges=UniformVelocityCommandCfg.Ranges(
-                    lin_vel_x=(-1.0, 1.0),
-                    lin_vel_y=(-0.5, 0.5),
-                    ang_vel_z=(-1.0, 1.0),
+                    lin_vel_x=deploy.commands.lin_vel_x,
+                    lin_vel_y=deploy.commands.lin_vel_y,
+                    ang_vel_z=deploy.commands.ang_vel_z,
                 ),
             )
         },
-        sim=SimulationCfg(mujoco=MujocoCfg(timestep=0.005), njmax=300),
-        decimation=4,
+        sim=SimulationCfg(mujoco=MujocoCfg(timestep=mj.timestep), njmax=300),
+        decimation=mj.decimation,
         episode_length_s=1e9,
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,

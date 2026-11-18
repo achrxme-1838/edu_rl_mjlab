@@ -1,3 +1,4 @@
+#include "python_config.h"
 // Exercise thread shutdown and final-state publishing without DDS channels.
 #include "FSM/CtrlFSM.h"
 #include <atomic>
@@ -43,11 +44,10 @@ int main(int argc, char** argv) {
         check(condition());
     };
     check(argc == 2);
-    // Use the real YAML and FSM scheduler with states that never open DDS.
+    // Use the common Python config and FSM scheduler with states that never open DDS.
     for (const auto type : {"State_Passive", "State_FixStand", "State_RLBase"})
         getFsmMap()[type] = [](int id, std::string name) { return std::make_shared<TestState>(id, name); };
-    const auto cfg = YAML::LoadFile((std::filesystem::path(argv[1]) /
-        "deploy/robots/a2/config/config.yaml").string())["FSM"];
+    const auto cfg = a2_config::load(std::filesystem::path(argv[1]))["FSM"];
     {
         CtrlFSM fsm(cfg);
         auto state = [&](int id) {

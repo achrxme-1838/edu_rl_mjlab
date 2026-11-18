@@ -39,9 +39,9 @@ int main(int argc, char** argv)
         FixedPose normal_pose(param::config["FSM"]["FixStand"]);
         FixedPose low_pose(param::config["FSM"]["LowStand"]);
         const auto model = policy_bundle::model_path(
-            param::repo_dir, param::deploy_config["policy_dir"].as<std::string>());
+            param::repo_dir, param::deploy_config["policy_path"].as<std::string>());
         isaaclab::OrtRunner probe(model.string());
-        const auto actions = probe.act({{"obs", std::vector<float>(225, 0.0f)}});
+        const auto actions = probe.act({{"obs", std::vector<float>(param::deploy_config["observation_dim"].as<std::size_t>(), 0.0f)}});
         if (actions.size() != 12 || !std::all_of(actions.begin(), actions.end(), [](float x) { return std::isfinite(x); }))
             throw std::runtime_error("A2 policy must produce 12 finite actions");
         spdlog::info("Policy ready: {}", model.string());
@@ -69,7 +69,7 @@ int main(int argc, char** argv)
 
     // Unitree DDS Config
     spdlog::info("DDS network interface: {}", network);
-    unitree::robot::ChannelFactory::Instance()->Init(0, network);
+    unitree::robot::ChannelFactory::Instance()->Init(param::config["network"]["domain_id"].as<int>(), network);
 
     init_fsm_state();
 

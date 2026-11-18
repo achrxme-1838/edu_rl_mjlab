@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <numeric>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -21,16 +22,10 @@ using Joints = std::array<float, 12>;
 using LowCmd = unitree_hg::msg::dds_::LowCmd_;
 constexpr double kStateTimeout = 0.2;
 
-inline std::string joint_name(int policy_id) {
-    const std::array<std::string, 4> legs{"FL", "FR", "RL", "RR"};
-    const std::array<std::string, 3> joints{"hip", "thigh", "calf"};
-    return legs.at(policy_id % 4) + "_" + joints.at(policy_id / 4) + "_joint";
-}
-
-inline std::string joint_label(int policy_id) {
-    const std::array<std::string, 4> legs{"left front", "right front", "left rear", "right rear"};
-    const std::array<std::string, 3> joints{"hip", "thigh", "calf"};
-    return legs.at(policy_id % 4) + " " + joints.at(policy_id / 4);
+inline std::string joint_label(const std::string& name) {
+    const std::map<std::string, std::string> legs{
+        {"FL", "left front"}, {"FR", "right front"}, {"RL", "left rear"}, {"RR", "right rear"}};
+    return legs.at(name.substr(0, 2)) + " " + name.substr(3, name.size() - 9);
 }
 
 inline bool finite(const Joints& values) {
@@ -39,11 +34,15 @@ inline bool finite(const Joints& values) {
 
 struct Config {
     std::array<int, 12> motor_ids{};
+    std::array<std::string, 12> joint_names{};
+
+    std::string joint_name(int id) const { return joint_names.at(id); }
+    std::string joint_label(int id) const { return a2_joint_test::joint_label(joint_name(id)); }
     Joints default_sdk{}, kp{}, kd{}, passive_kd{};
 
-    static Config load(const std::filesystem::path& policy, const std::filesystem::path& fsm) {
-        const auto cfg = YAML::LoadFile(policy.string());
-        const auto fsm_cfg = YAML::LoadFile(fsm.string());
+    static Config load(const YAML::Node& runtime) {
+        const auto cfg = runtime["deploy"];
+        const auto fsm_cfg = runtime;
         auto read_joints = [](const YAML::Node& node) {
             if (!node.IsSequence() || node.size() != 12)
                 throw std::runtime_error("Pose and gains must contain 12 finite values");
@@ -53,6 +52,9 @@ struct Config {
             return values;
         };
         Config result;
+        const auto names = cfg["joint_names"].as<std::vector<std::string>>();
+        if (names.size() != 12) throw std::runtime_error("Expected 12 policy joint names");
+        std::copy(names.begin(), names.end(), result.joint_names.begin());
         const auto ids = cfg["joint_ids_map"].as<std::vector<int>>();
         auto sorted_ids = ids;
         std::sort(sorted_ids.begin(), sorted_ids.end());
@@ -154,8 +156,8 @@ public:
         if (phase_ == Phase::Done)
             return "All 12 joints completed. Holding default pose. Q / Esc / Ctrl-C: passive stop.";
         const std::string prefix = phase_ == Phase::Wave ? "TEST" : "RETURN";
-        return "[" + prefix + " " + std::to_string(index_ + 1) + "/12] expected: " + joint_label(policy_id()) +
-            " (" + joint_name(policy_id()) + ") | EDU joint " + std::to_string(policy_id()) +
+        return "[" + prefix + " " + std::to_string(index_ + 1) + "/12] expected: " + cfg_.joint_label(policy_id()) +
+            " (" + cfg_.joint_name(policy_id()) + ") | EDU joint " + std::to_string(policy_id()) +
             " -> motor ID " + std::to_string(cfg_.motor_ids[policy_id()]);
     }
 

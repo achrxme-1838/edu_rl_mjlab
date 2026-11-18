@@ -1,5 +1,6 @@
 #include "JointTest.h"
 #include "network_config.h"
+#include "python_config.h"
 
 #include <atomic>
 #include <boost/program_options.hpp>
@@ -81,8 +82,8 @@ public:
         if (subscriber_) subscriber_->CloseChannel();
     }
 
-    void connect(const std::string& network, double timeout) {
-        unitree::robot::ChannelFactory::Instance()->Init(0, network);
+    void connect(const std::string& network, int domain_id, double timeout) {
+        unitree::robot::ChannelFactory::Instance()->Init(domain_id, network);
         subscriber_ = std::make_unique<unitree::robot::ChannelSubscriber<LowState>>("rt/lowstate");
         const auto state = state_;
         subscriber_->InitChannel([state](const void* message) {
@@ -159,7 +160,7 @@ void run(RealRobot& robot, const Config& cfg, const Motion& motion, const Termin
         }
         if (now >= next_status && sequence.phase() == Sequence::Phase::Wave) {
             const int motor_id = cfg.motor_ids[sequence.policy_id()];
-            std::cout << "\r\033[K  " << joint_label(sequence.policy_id()) << " | motor " << motor_id
+            std::cout << "\r\033[K  " << cfg.joint_label(sequence.policy_id()) << " | motor " << motor_id
                       << std::fixed << std::setprecision(4) << " | offset " << std::showpos
                       << target.q[motor_id] - cfg.default_sdk[motor_id]
                       << " | target " << target.q[motor_id] << " | measured " << state->q[motor_id]
@@ -173,17 +174,17 @@ void run(RealRobot& robot, const Config& cfg, const Motion& motion, const Termin
 
 int main_impl(int argc, char** argv) {
     namespace po = boost::program_options;
-    // Keep the same build/ or bin/ next to config/ layout as a2_ctrl.
+    // Resolve the repository from the same build/ or bin/ layout as a2_ctrl.
     const auto project = std::filesystem::read_symlink("/proc/self/exe").parent_path().parent_path();
-    std::string network, order, config_path, fsm_path;
+    const auto repository = project.parent_path().parent_path().parent_path();
+    std::string network, order, config_path;
     Motion motion;
     double timeout;
     po::options_description desc("A2 real joint test (C++ Unitree SDK2)");
     desc.add_options()
         ("help,h", "show usage")
-        ("network,n", po::value<std::string>(&network), "override config.yaml network.interface")
-        ("config", po::value<std::string>(&config_path)->default_value((project / "config/deploy.yaml").string()), "policy deployment YAML")
-        ("fsm-config", po::value<std::string>(&fsm_path)->default_value((project / "config/config.yaml").string()), "YAML for network interface and Passive damping")
+        ("network,n", po::value<std::string>(&network), "override Python config network.interface")
+        ("config", po::value<std::string>(&config_path)->default_value((repository / "deploy/configs/a2/config.py").string()), "Python file defining A2DeployCfg")
         ("order", po::value<std::string>(&order)->default_value("edu"), "edu or sdk")
         ("amplitude", po::value<double>(&motion.amplitude)->default_value(0.05), "oscillation amplitude in rad (0 < value <= 0.15)")
         ("period", po::value<double>(&motion.period)->default_value(3.0), "oscillation period in seconds (>=2)")
@@ -197,15 +198,16 @@ int main_impl(int argc, char** argv) {
     if (order != "edu" && order != "sdk") throw std::runtime_error("--order must be edu or sdk");
     motion.sdk_order = order == "sdk";
     if (!std::isfinite(timeout) || timeout < 1) throw std::runtime_error("--connect-timeout must be finite and >=1");
-    const auto cfg = Config::load(config_path, fsm_path);
-    network = a2_network::resolve(YAML::LoadFile(fsm_path),
+    const auto runtime = a2_config::load(repository, config_path);
+    const auto cfg = Config::load(runtime);
+    network = a2_network::resolve(runtime,
         vm.count("network") ? std::make_optional(network) : std::nullopt);
     Sequence preview(cfg, cfg.default_sdk, 0, motion);
     std::cout << "Config: " << config_path << "\nOrder: " << order << "; amplitude +/-" << motion.amplitude
               << " rad; period " << motion.period << "s\n";
     int number = 0;
     for (int policy_id : preview.order())
-        std::cout << "  " << std::setw(2) << number++ << ": " << std::setw(17) << std::left << joint_label(policy_id)
+        std::cout << "  " << std::setw(2) << number++ << ": " << std::setw(17) << std::left << cfg.joint_label(policy_id)
                   << std::right << " | EDU " << std::setw(2) << policy_id << " -> motor " << std::setw(2) << cfg.motor_ids[policy_id] << '\n';
     if (!isatty(STDIN_FILENO)) throw std::runtime_error("Run in an interactive terminal for Space / Q / Ctrl-C");
     std::cout << "Space: return current joint then advance. Q / Esc / Ctrl-C: passive stop.\n";
@@ -215,7 +217,7 @@ int main_impl(int argc, char** argv) {
               << "The robot must already be in low-level/debug mode. Stop other controllers first.\n"
               << "Connecting to A2 on " << network << "; waiting for LowState..." << std::endl;
     RealRobot robot(cfg);
-    robot.connect(network, timeout);
+    robot.connect(network, runtime["network"]["domain_id"].as<int>(), timeout);
     run(robot, cfg, motion, keys);
     return 0;
 }

@@ -5,15 +5,21 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from src import SRC_PATH
+from deploy.configs.a2 import load_config, resolve_path, validate
 
-DEFAULT_CHECKPOINT = SRC_PATH.parent / "networks/01_EDU_A2_STAIR/model_10001.pt"
+DEFAULT_CHECKPOINT = resolve_path(load_config().policy.checkpoint)
 
 
 class EduA2Policy(nn.Module):
-    def __init__(self, checkpoint=DEFAULT_CHECKPOINT, device="cpu"):
+    def __init__(self, checkpoint=None, device="cpu", deploy_cfg=None):
         super().__init__()
-        self.checkpoint = Path(checkpoint).expanduser().resolve()
+        cfg = validate(deploy_cfg) if deploy_cfg is not None else load_config()
+        self.observation_dim = cfg.observations.dimension
+        self.checkpoint = (
+            resolve_path(cfg.policy.checkpoint)
+            if checkpoint is None
+            else Path(checkpoint).expanduser().resolve()
+        )
         payload = torch.load(self.checkpoint, map_location="cpu", weights_only=True)
         state = payload["model_state_dict"]
         allowed = {"model_state_dict", "optimizer_state_dict", "iter", "infos"}
@@ -28,15 +34,13 @@ class EduA2Policy(nn.Module):
                 "Unsupported policy state: this adapter expects no observation normalization."
             )
         self.iteration = payload.get("iter")
-        self.actor = nn.Sequential(
-            nn.Linear(225, 512),
-            nn.ELU(),
-            nn.Linear(512, 256),
-            nn.ELU(),
-            nn.Linear(256, 128),
-            nn.ELU(),
-            nn.Linear(128, 12),
-        )
+        dims = (self.observation_dim, *cfg.policy.hidden_dims, len(cfg.joints.names))
+        layers = []
+        for index, (size_in, size_out) in enumerate(zip(dims, dims[1:])):
+            layers.append(nn.Linear(size_in, size_out))
+            if index < len(dims) - 2:
+                layers.append(nn.ELU())
+        self.actor = nn.Sequential(*layers)
         self.actor.load_state_dict(
             {
                 k.removeprefix("actor."): v
@@ -57,8 +61,8 @@ class EduA2Policy(nn.Module):
             if isinstance(observations, torch.Tensor)
             else observations["actor"]
         )
-        if obs.ndim != 2 or obs.shape[-1] != 225:
+        if obs.ndim != 2 or obs.shape[-1] != self.observation_dim:
             raise ValueError(
-                f"Expected [batch, 225] actor observations, got {tuple(obs.shape)}"
+                f"Expected [batch, {self.observation_dim}] actor observations, got {tuple(obs.shape)}"
             )
         return self.actor(obs)

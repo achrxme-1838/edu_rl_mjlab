@@ -40,6 +40,23 @@ Python 스크립트를 직접 실행하려면 앞에 `env -u PYTHONPATH PYTHONNO
 mujoco-warp 3.5.0, warp-lang 1.12.0, rsl-rl-lib 5.0.1.
 영상 저장에는 imageio와 imageio-ffmpeg를 사용한다.
 
+## 공통 Python 설정
+
+기존 환경을 업데이트했다면 저장소 루트에서 `pip install -e . --no-deps`를 한 번 실행한다.
+
+`PolicyCfg.checkpoint`, `ObservationsCfg`, `JointsCfg`, `ActionsCfg`를 수정하면
+sim2real과 공유하는 정책 계약에 반영된다. `MujocoCfg`는 MuJoCo 순서의 `kp`/`kd`,
+물리 dt·decimation, 모터 한계, 초기 높이·고정 명령을 정의한다.
+관측 필드 이름은 라벨이며 `ObservationTermCfg(func=mdp.base_ang_vel, size=3)`처럼
+`from mjlab_wrapper import mdp`로 가져온 래퍼 함수를 명시한다. 선언 순서가 정책 입력 순서다.
+함수 목록과 인자는 [`mjlab_wrapper/mdp`](../mjlab_wrapper/mdp/README.md)에서 확인한다.
+뷰어 명령 범위는 공통 `CommandsCfg`의 x ±0.6, y ±0.4 m/s, yaw ±1 rad/s를 사용한다.
+
+별도 Python cfg를 사용하려면 `bash scripts/sim2sim.sh --config /path/to/config.py`로 실행한다.
+이 파일은 `A2DeployCfg`를 정의해야 한다. `--checkpoint`, `--command`는 해당 실행에서만
+선택한 cfg 값을 덮어쓴다. 정책 경로의 상대 경로는 저장소 루트 기준이며,
+`--config`와 `--checkpoint`의 CLI 상대 경로는 실행 디렉터리 기준이다.
+
 ## 이식 계약
 
 Actor는 정규화 없이 `225 → 512 → 256 → 128 → 12` ELU MLP를 실행한다.
@@ -74,7 +91,10 @@ mjlab의 leg별 관절 순서에 대응하는 인덱스는
 
 사용자가 선택한 대로 mjlab A2의 몸체 질량·관성·충돌 형상·접촉 설정은 유지한다.
 예를 들어 몸통 질량은 mjlab 19.651 kg, EDU USD 20.651 kg으로 다르다.
-기본 A2 설정은 `src/tasks/velocity/config/a2/env_cfgs.py`다. 기존 A2 학습 설정은 제거했다.
+공통 배포 설정은 [`deploy/configs/a2/config.py`](../deploy/configs/a2/config.py)의
+`A2DeployCfg`다. `src/tasks/velocity/config/a2/env_cfgs.py`는 이 설정을 mjlab 객체로
+변환하고 지형·뷰어를 구성한다. 설정 항목과 수정 예시는 [공통 설정 문서](deploy_config.md)를 참고한다.
+기존 A2 학습 설정은 제거했다.
 등록된 A2 재생 task는 `Unitree-A2-Flat`, `Unitree-A2-Stairs`이며 둘 다 같은 기본 체크포인트를 사용한다.
 
 ## 검증 및 결과

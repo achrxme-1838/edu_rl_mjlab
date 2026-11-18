@@ -1,6 +1,5 @@
 """Check real_joint_test CLI validation without opening DDS channels."""
 
-import json
 import subprocess
 import tempfile
 import unittest
@@ -19,7 +18,7 @@ class CppJointDiagnosticTest(unittest.TestCase):
             stdin=subprocess.DEVNULL,
             text=True,
             capture_output=True,
-            timeout=5,
+            timeout=30,
         )
 
     def test_help_shows_only_supported_modes(self):
@@ -56,10 +55,10 @@ class CppJointDiagnosticTest(unittest.TestCase):
                 self.assertNotIn("Connecting to A2", result.stdout)
 
     def test_network_from_config_and_cli_override(self):
-        # JSON is valid YAML. An interactive-terminal error proves interface
+        # An interactive-terminal error proves interface
         # selection passed, while DEVNULL stdin prevents any DDS connection.
         with tempfile.TemporaryDirectory() as temp:
-            config = Path(temp) / "config.yaml"
+            config = Path(temp) / "config.py"
             for saved, cli, expected_error in (
                 ("lo", (), "interactive terminal"),
                 ("lo", ("--network", "a2_missing_cli"), "a2_missing_cli"),
@@ -68,11 +67,13 @@ class CppJointDiagnosticTest(unittest.TestCase):
                 ("lo", ("--network", ""), "must not be empty"),
             ):
                 with self.subTest(saved=saved, cli=cli):
-                    config.write_text(json.dumps({
-                        "network": {"interface": saved},
-                        "FSM": {"Passive": {"kd": [10] * 12}},
-                    }))
-                    result = self.run_cli("--fsm-config", str(config), *cli)
+                    config.write_text(
+                        "from dataclasses import replace\n"
+                        "from deploy.configs.a2 import A2DeployCfg as Base\n"
+                        "def A2DeployCfg():\n"
+                        f"    return replace(Base(), network=replace(Base().network, interface={saved!r}))\n"
+                    )
+                    result = self.run_cli("--config", str(config), *cli)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(expected_error, result.stderr)
                     self.assertNotIn("Connecting to A2", result.stdout)

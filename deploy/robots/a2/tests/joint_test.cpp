@@ -1,3 +1,4 @@
+#include "python_config.h"
 // Offline tests: use real HG packets, but never create DDS channels.
 #include "JointTest.h"
 #include <iostream>
@@ -23,11 +24,11 @@ int main(int argc, char** argv) {
     try {
         check(argc == 2, "Supply repository root");
         const std::filesystem::path root(argv[1]);
-        const auto cfg = Config::load(root / "deploy/robots/a2/config/deploy.yaml", root / "deploy/robots/a2/config/config.yaml");
+        const auto cfg = Config::load(a2_config::load(root));
         const std::array<int, 12> expected_ids{3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8};
         const auto source = YAML::LoadFile((root / "networks/01_EDU_A2_STAIR/source_model.json").string());
         for (int i = 0; i < 12; ++i) {
-            check(joint_name(i) == source["joint_names"][i].as<std::string>(), "Policy joint name mismatch");
+            check(cfg.joint_name(i) == source["joint_names"][i].as<std::string>(), "Policy joint name mismatch");
             check(cfg.motor_ids[i] == expected_ids[i], "SDK motor ID mismatch");
             near(cfg.default_sdk[cfg.motor_ids[i]], source["default_joint_pos"][i].as<float>());
         }
@@ -44,7 +45,7 @@ int main(int argc, char** argv) {
         sequence.sample(now);
         for (int i = 0; i < 12; ++i) {
             check(sequence.policy_id() == i, "EDU order mismatch");
-            check(sequence.description().find(joint_label(i)) != std::string::npos, "Missing expected joint name");
+            check(sequence.description().find(cfg.joint_label(i)) != std::string::npos, "Missing expected joint name");
             now += 0.75;
             const auto target = sequence.sample(now);
             for (int motor = 0; motor < 12; ++motor)
@@ -62,7 +63,7 @@ int main(int argc, char** argv) {
         sdk_motion.sdk_order = true;
         Sequence sdk(cfg, initial, 0, sdk_motion);
         for (int i = 0; i < 12; ++i) check(cfg.motor_ids[sdk.order()[i]] == i, "SDK order mismatch");
-        check(joint_label(sdk.policy_id()) == "right front hip", "SDK first joint label mismatch");
+        check(cfg.joint_label(sdk.policy_id()) == "right front hip", "SDK first joint label mismatch");
 
         LowCmd command{};
         fill_command(command, cfg, Target{cfg.default_sdk});

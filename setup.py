@@ -1,6 +1,6 @@
 """Installation script for the 'unitree_rl_mjlab' python package."""
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
@@ -11,7 +11,12 @@ INSTALL_REQUIRES = [
 # Installation operation
 setup(
     name="unitree_rl_mjlab",
-    packages=["src"],
+    packages=find_packages(
+        include=(
+            "src", "src.*", "deploy", "deploy.configs", "deploy.configs.*",
+            "mjlab_wrapper", "mjlab_wrapper.*",
+        )
+    ),
     version="0.0.1",
     install_requires=INSTALL_REQUIRES,
     extras_require={"export": ["onnx>=1.16"]},

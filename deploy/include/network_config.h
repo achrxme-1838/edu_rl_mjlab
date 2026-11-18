@@ -18,14 +18,14 @@ inline std::string resolve(const YAML::Node& config,
     } else {
         const auto network = config["network"];
         if (!network.IsMap() || !network["interface"].IsScalar())
-            throw std::runtime_error("Set network.interface in config.yaml (or --network)");
+            throw std::runtime_error("Set network.interface in deploy/configs/a2/config.py (or --network)");
         name = network["interface"].as<std::string>();
     }
     if (name.empty())
-        throw std::runtime_error("Set network.interface in config.yaml (or --network); it must not be empty");
+        throw std::runtime_error("Set network.interface in deploy/configs/a2/config.py (or --network); it must not be empty");
     if (name.find('\0') != std::string::npos || if_nametoindex(name.c_str()) == 0)
         throw std::runtime_error("Network interface '" + name +
-            "' does not exist; check config.yaml network.interface or --network");
+            "' does not exist; check deploy/configs/a2/config.py network.interface or --network");
     return name;
 }
 

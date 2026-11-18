@@ -16,6 +16,8 @@ bash scripts/sim2sim.sh --terrain flat
 
 默认场景为 5 级 10 cm 上行台阶、2 m 平台及下行台阶。
 默认网络为 `networks/01_EDU_A2_STAIR/model_10001.pt`。
+sim2sim 和 sim2real 共用 `deploy/configs/a2/config.py` 中的 Python 配置类。
+策略路径、网络、观测历史、动作、关节顺序和增益都在此定义，见[配置说明](doc/deploy_config.md)。
 环境、actor 加载和回放报告位于 `src/tasks/velocity/config/a2/`。
 观测顺序、电机参数、录像方法及已知限制见 [sim2sim 文档](doc/sim2sim.md)。
 
@@ -46,13 +48,18 @@ bash scripts/sim2sim.sh --headless --steps 2000 --check
 
 `deploy/robots/a2/` 使用现有 C++/DDS 控制器运行 EDU actor。
 在 `edu_rl_lab` 中运行 `play` 自动导出 ONNX，然后手动将 `policy.onnx` 复制到
-`networks/01_EDU_A2_STAIR/` 等策略目录。在 `deploy/robots/a2/config/deploy.yaml`
-中修改 `policy_dir` 选择目录；控制器只读取 ONNX，不转换检查点。`deploy/robots/a2/config/deploy.yaml`
-保存 EDU 观测、历史、关节顺序、PD 和动作处理配置。
+`networks/01_EDU_A2_STAIR/` 等策略目录。在 `deploy/configs/a2/config.py`
+中修改 `PolicyCfg.onnx` 选择 ONNX 文件，`PolicyCfg.checkpoint` 选择 sim2sim 检查点。
+控制器只读取 ONNX，不转换检查点。配置使用 `from mjlab_wrapper import mdp`，
+[本地观测函数目录](mjlab_wrapper/mdp/README.md) 提供明确的参数和说明，计算委托给 mjlab。
+启动时需要安装了 mjlab 的 Python 环境。通过 CMake 的 `Python3_EXECUTABLE`
+选择解释器，也可在运行时用 `A2_PYTHON` 指定绝对路径；推理与 DDS 通信由 C++ 执行。
 NX (a2) 上的复制及运行方法见 [sim2real 文档](doc/sim2real.md)。
 
 ```bash
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON
+conda activate mjlab
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build -DBUILD_OFFLINE_TESTS=ON \
+  -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build deploy/robots/a2/build -j2
 ctest --test-dir deploy/robots/a2/build --output-on-failure
 bash scripts/sim2real.sh --check-policy
@@ -61,7 +68,7 @@ env -u PYTHONPATH PYTHONNOUSERSITE=1 python -m unittest discover -s tests -v
 
 离线工具用合成传感器数据对比实际 C++ 观测、ONNX 推理和动作处理与 Python 输出，
 不创建 DDS 通道。本次未验证实机行走或 C++ DDS 仿真行走。
-在 `deploy/robots/a2/config/config.yaml` 中设置 `network.interface` 后，
+在 `deploy/configs/a2/config.py` 中设置 `network.interface` 后，
 在 NX (a2) 上运行 `bash scripts/sim2real.sh`，加上 `--log` 可保存控制器日志。
 
 SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
@@ -69,7 +76,7 @@ SDK 中的 `g1`/`go2` 命名空间是 A2 使用的公共 DDS 封装。
 控制器启动后用 2 秒自动移动至固定站姿。**Start** 切换固定站姿 / 策略模式，
 **A** 切换至较低的固定姿态；低姿态下先按 Start 返回正常站姿，再按 Start 进入策略模式。
 **R1 / L1** 增加 / 降低线速度倍率，**R2 / L2** 增加 / 降低角速度倍率。
-每次按下变化 0.1，初始 0.5，范围 0–1，可在 `deploy.yaml` 中修改。
+每次按下变化 0.1，初始 0.5，范围 0–1，可在 `CommandsCfg.linear` / `angular` 中修改。
 同时按 **R1 + R2** 退出 `a2_ctrl`：停止策略，发送约 100 ms Passive 阻尼，再结束控制器。
 退出操作优先于速度增加。
 
@@ -83,13 +90,15 @@ Q / Esc / Ctrl-C 发送 Passive 阻尼命令并退出。
 安装与操作见[关节检查文档](doc/real_joint_test.md)。
 
 ```bash
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+conda activate mjlab
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
+  -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
-# 在 deploy/robots/a2/config/config.yaml 中设置 network.interface，并先停止其他控制器。
+# 在 deploy/configs/a2/config.py 中设置 network.interface，并先停止其他控制器。
 ./deploy/robots/a2/build/real_joint_test
 ```
 
-该工具无需 Python、Conda 或 ONNX Runtime。
+该工具启动时需要安装了 mjlab 的 Python 环境读取公共配置；C++ 关节测试本身不使用 ONNX Runtime。
 
 ## 致谢
 

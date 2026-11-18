@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(yaml-cpp REQUIRED)
 find_package(unitree_sdk2 REQUIRED)
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" -I -c "from mjlab.envs import mdp"
+  RESULT_VARIABLE A2_MJLAB_IMPORT_STATUS
+  ERROR_VARIABLE A2_MJLAB_IMPORT_ERROR
+)
+if(NOT A2_MJLAB_IMPORT_STATUS EQUAL 0)
+  message(FATAL_ERROR "A2 config requires mjlab. Set -DPython3_EXECUTABLE=/path/to/mjlab/bin/python.\n${A2_MJLAB_IMPORT_ERROR}")
+endif()
+add_compile_definitions(A2_CONFIG_PYTHON="${Python3_EXECUTABLE}")
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(ONNXRUNTIME_DIR "${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0")
@@ -56,5 +66,5 @@ if(BUILD_OFFLINE_TESTS)
   add_test(NAME a2_joystick COMMAND a2_joystick_test "${PROJECT_SOURCE_DIR}/../../..")
   add_test(NAME a2_joint_test COMMAND a2_joint_test "${PROJECT_SOURCE_DIR}/../../..")
   add_test(NAME a2_fsm_shutdown COMMAND a2_fsm_shutdown_test "${PROJECT_SOURCE_DIR}/../../..")
-  set_tests_properties(a2_fsm_shutdown PROPERTIES TIMEOUT 10)
+  set_tests_properties(a2_joystick a2_joint_test a2_fsm_shutdown PROPERTIES TIMEOUT 30)
 endif()

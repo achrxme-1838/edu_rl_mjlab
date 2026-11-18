@@ -1,3 +1,4 @@
+#include "python_config.h"
 // Offline probe: uses the deployment managers and DDS message types without channels.
 #include <fstream>
 #include <memory>
@@ -50,11 +51,12 @@ void load_frame(SensorFrame& sensor, const YAML::Node& frame) {
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 5) throw std::runtime_error("Usage: a2_policy_probe deploy.yaml policy.onnx frames.yaml result.yaml");
+        if (argc != 5 && argc != 6)
+            throw std::runtime_error("Usage: a2_policy_probe repository policy.onnx frames.yaml result.yaml [config.py]");
         const auto frames = YAML::LoadFile(argv[3]);
         auto sensor = std::make_shared<SensorFrame>();
         load_frame(*sensor, frames[0]);
-        const auto cfg = YAML::LoadFile(argv[1]);
+        const auto cfg = a2_config::load(argv[1], argc == 6 ? argv[5] : "")["deploy"];
         a2_controls::SpeedControl speed(cfg["commands"]["base_velocity"]["speed_control"]);
         auto robot = std::make_shared<unitree::BaseArticulation<std::shared_ptr<SensorFrame>>>(
             sensor, [&] { return speed.scales(); });

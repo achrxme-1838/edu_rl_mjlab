@@ -1,6 +1,7 @@
 """Check EDU -> existing C++ deployment, without creating DDS channels."""
 
 import hashlib
+import json
 import os
 import subprocess
 import tempfile
@@ -17,6 +18,8 @@ import onnx
 import torch
 import yaml
 
+from deploy.configs.a2 import DEFAULT_CONFIG, load_config
+from deploy.configs.a2.runtime import to_runtime
 from src.tasks.velocity.config.a2.env_cfgs import (
     DEFAULT_JOINT_POS,
     POLICY_JOINT_NAMES,
@@ -27,8 +30,8 @@ from src.tasks.velocity.config.a2.policy import DEFAULT_CHECKPOINT, EduA2Policy
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_DIR = ROOT / "networks/01_EDU_A2_STAIR"
 PROBE = ROOT / "deploy/robots/a2/build/a2_policy_probe"
-DEPLOY_CFG = ROOT / "deploy/robots/a2/config/deploy.yaml"
-CFG = yaml.safe_load(DEPLOY_CFG.read_text())
+RUNTIME = json.loads(json.dumps(to_runtime(load_config())))
+CFG = RUNTIME["deploy"]
 SDK_JOINTS = [
     element.attrib["joint"]
     for element in ET.parse(ROOT / "src/assets/robots/unitree_a2/xmls/scene_a2.xml")
@@ -86,16 +89,14 @@ class DeploymentConfigTest(unittest.TestCase):
         )
 
     def test_fixstand_final_pose_and_export_provenance(self):
-        fsm = yaml.safe_load(
-            (ROOT / "deploy/robots/a2/config/config.yaml").read_text()
-        )["FSM"]
+        fsm = RUNTIME["FSM"]
         expected_sdk = np.empty(12)
         expected_sdk[CFG["joint_ids_map"]] = DEFAULT_JOINT_POS
         np.testing.assert_array_equal(fsm["FixStand"]["qs"][-1], expected_sdk)
         self.assertEqual(fsm["FixStand"]["kp"], [200] * 12)
         self.assertEqual(fsm["FixStand"]["kd"], [5] * 12)
         self.assertNotIn("policy_dir", fsm["Velocity"])
-        self.assertEqual(CFG["policy_dir"], "networks/01_EDU_A2_STAIR/")
+        self.assertEqual(CFG["policy_path"], "networks/01_EDU_A2_STAIR/policy.onnx")
         model = onnx.load(str(POLICY_DIR / "policy.onnx"))
         metadata = {item.key: item.value for item in model.metadata_props}
         self.assertEqual(metadata["checkpoint_file"], DEFAULT_CHECKPOINT.name)
@@ -104,9 +105,7 @@ class DeploymentConfigTest(unittest.TestCase):
         self.assertEqual(metadata["actor_obs_normalization"], "false")
 
     def test_lowstand_lowers_body_five_cm_within_joint_limits(self):
-        fsm = yaml.safe_load(
-            (ROOT / "deploy/robots/a2/config/config.yaml").read_text()
-        )["FSM"]
+        fsm = RUNTIME["FSM"]
         model = mujoco.MjModel.from_xml_path(
             str(ROOT / "src/assets/robots/unitree_a2/xmls/a2.xml")
         )
@@ -163,7 +162,7 @@ class CppDeploymentTest(unittest.TestCase):
             subprocess.run(
                 [
                     str(PROBE),
-                    str(DEPLOY_CFG),
+                    str(ROOT),
                     str(POLICY_DIR / "policy.onnx"),
                     str(inputs),
                     str(outputs),
@@ -174,6 +173,20 @@ class CppDeploymentTest(unittest.TestCase):
                 timeout=30,
             )
             result = yaml.safe_load(outputs.read_text())
+            # Every field label changes, including labels which resemble legacy
+            # manager options. The same func/params must yield identical outputs.
+            aliases = ("gyro", "gravity", "command", "scale_first", "use_gym_history", "previous_action")
+            source = DEFAULT_CONFIG.read_text()
+            for name, alias in zip(load_config().observations.terms, aliases):
+                source = source.replace(f"    {name}: ObservationTermCfg", f"    {alias}: ObservationTermCfg")
+            config_path = Path(directory) / "alias_config.py"
+            config_path.write_text(source)
+            subprocess.run(
+                [str(PROBE), str(ROOT), str(POLICY_DIR / "policy.onnx"),
+                 str(inputs), str(outputs), str(config_path)],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(yaml.safe_load(outputs.read_text()), result)
         self.assertTrue(result["rejected_short_observation"])
         self.assertTrue(result["rejected_nonfinite_observation"])
         self.assertEqual(result["bad_orientation"], [False, False, True, True])

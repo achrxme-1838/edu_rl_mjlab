@@ -1,3 +1,4 @@
+#include "python_config.h"
 #include "unitree_joystick_dsl.hpp"
 #include "a2_controls.h"
 #include "fixed_pose.h"
@@ -23,8 +24,9 @@ int main(int argc, char** argv) {
     auto near = [&](float a, float b) { check(std::fabs(a - b) < 1e-5f); };
     check(argc == 2);
     const auto root = std::filesystem::path(argv[1]);
-    const auto fsm = YAML::LoadFile((root / "deploy/robots/a2/config/config.yaml").string())["FSM"];
-    const auto speed_cfg = YAML::LoadFile((root / "deploy/robots/a2/config/deploy.yaml").string())
+    const auto runtime = a2_config::load(root);
+    const auto fsm = runtime["FSM"];
+    const auto speed_cfg = runtime["deploy"]
         ["commands"]["base_velocity"]["speed_control"];
     auto transition = [&](const std::string& state, const UnitreeJoystick& joy) {
         for (auto it : fsm[state]["transitions"]) {
@@ -87,7 +89,7 @@ int main(int argc, char** argv) {
     near(a2_controls::velocity_command(1, -.6, .6, 0), 0);
 
     // Exercise the production observation function with SDK-filtered packets.
-    const auto deploy_cfg = YAML::LoadFile((root / "deploy/robots/a2/config/deploy.yaml").string());
+    const auto deploy_cfg = runtime["deploy"];
     auto check_sticks = [&](float ly, float lx, float rx, float ry,
                             const std::array<float, 3>& full_command) {
         auto input = std::make_shared<JoystickSensorFrame>();

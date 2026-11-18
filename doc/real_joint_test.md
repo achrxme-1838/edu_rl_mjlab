@@ -1,7 +1,9 @@
 # A2 실기 관절 순서 확인
 
 `real_joint_test`는 관절을 하나씩 움직여 터미널에 표시된 예상 관절과 실제 움직임을 비교하는 도구다.
-관절 매핑·기본 자세·PD 게인은 `deploy/robots/a2/config/deploy.yaml`에서 읽는다.
+관절 매핑·기본 자세·PD 게인은 공통 [`deploy/configs/a2/config.py`](../deploy/configs/a2/config.py)의
+`JointsCfg`와 `RealCfg`에서 읽는다. 공통 cfg가 mjlab을 import하므로 시작 시
+mjlab이 설치된 Python이 필요하다. 관절 테스트 자체는 ONNX Runtime을 사용하지 않는다.
 
 ## 빌드와 실행
 
@@ -10,13 +12,15 @@ NX (a2)에서 관절 테스트만 빌드하려면:
 
 ```bash
 cd "$HOME/control_ws/edu_rl_mjlab"
-cmake -S deploy/robots/a2 -B deploy/robots/a2/build
+conda activate mjlab
+cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
+  -DPython3_EXECUTABLE="$(command -v python)"
 cmake --build deploy/robots/a2/build --target real_joint_test -j2
 ```
 
 로봇을 저수준/debug 모드로 전환하고 `a2_ctrl` 등 다른 모터 제어 프로그램을 종료한다.
 **로봇을 지지하거나 매단 상태에서 실행한다. 연결되면 자동으로 움직이며 균형 제어는 없다.**
-`deploy/robots/a2/config/config.yaml`의 `network.interface`에 로봇 Ethernet 인터페이스를 저장한 뒤 실행한다.
+`deploy/configs/a2/config.py`의 `NetworkCfg.interface`에 로봇 Ethernet 인터페이스를 저장한 뒤 실행한다.
 
 ```bash
 ./deploy/robots/a2/build/real_joint_test
@@ -49,13 +53,17 @@ EDU → SDK 모터 ID 매핑은 `[3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8]`이다.
 
 | 옵션 | 기본값 / 용도 |
 | --- | --- |
-| `--network` | 선택 사항. 지정하면 `config.yaml`의 `network.interface` 대신 사용 |
+| `--network` | 선택 사항. 지정하면 `NetworkCfg.interface` 대신 사용 |
 | `--amplitude` | 0.05 rad, 0 초과~0.15 이하 |
 | `--period` | 3초, 최소 2초 |
 | `--stand-duration` | 초기 자세 전환 5초, 최소 3초 |
 | `--order` | `edu`; `sdk` 지정 시 모터 ID 순서 |
 | `--connect-timeout` | 연결 대기 5초, 최소 1초 |
-| `--config` | `deploy/robots/a2/config/deploy.yaml` |
-| `--fsm-config` | 통신 인터페이스·Passive 게인을 읽을 `deploy/robots/a2/config/config.yaml` |
+| `--config` | `A2DeployCfg`를 정의한 Python 파일. 기본값: `deploy/configs/a2/config.py` |
 
-기본 설정은 실행 파일 기준 `../config/`에서 찾으므로 `a2/build/`와 `a2/config/` 배치를 유지한다.
+기본 설정은 실행 파일 위치에서 저장소 루트를 찾아 읽는다.
+`deploy/robots/a2/build/`(또는 `bin/`), `deploy/configs/a2/`, `mjlab_wrapper/` 배치를 유지한다.
+별도 cfg를 지정해도 `runtime.py` 어댑터는 저장소의 `deploy/configs/a2/`에서 읽는다.
+기존 `--fsm-config` 옵션은 제거됐으며 `--config` 하나로 통신·관절·Passive 설정을 선택한다.
+설정 로딩에는 CMake에서 선택한 Python을 사용한다. `A2_PYTHON` 환경변수에 실행 파일의
+절대 경로를 지정하면 실행 시 Python을 바꿀 수 있다.
