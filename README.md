@@ -37,7 +37,9 @@ rm "$a2_conda_installer"
 </details>
 
 이미 `mjlab` 환경이나 저장소가 있으면 생성·clone을 생략하고 기존 경로를 사용한다.
-아래 `~/control_ws`는 예시이며, 현재 개발 PC의 저장소는 `/home/lim/rl_ws/edu_rl_mjlab`이다.
+아래 `~/control_ws/edu_rl_mjlab`는 예시다. 이미 clone했다면 해당 저장소 경로에서 실행한다.
+새 터미널에서 `conda`를 찾지 못하면 설치 위치에 맞게
+`source ~/anaconda3/etc/profile.d/conda.sh` 또는 `source ~/miniconda3/etc/profile.d/conda.sh`를 먼저 실행한다.
 
 ```bash
 conda create -n mjlab python=3.11 -y
@@ -45,19 +47,26 @@ conda activate mjlab
 mkdir -p "$HOME/control_ws"
 git clone https://github.com/achrxme-1838/edu_rl_mjlab.git "$HOME/control_ws/edu_rl_mjlab"
 cd "$HOME/control_ws/edu_rl_mjlab"
-python -m pip install -e '.[export]'
-python -I -c "from mjlab.envs import mdp; import onnxruntime; import onnx"
+# ROS/Isaac의 Python 경로·사용자 패키지가 pip 설치에 섞이지 않도록 -I 사용
+python -I -m pip install -e '.[export]' 'mujoco==3.5.0' scipy
+python -I -m pip check
+python -I -c "from mjlab.envs import mdp; import scipy.interpolate; import onnxruntime; import onnx"
 ```
 
-`setup.py`가 mjlab 1.2.0, mujoco-warp 3.5.0, ONNX Runtime 1.22.0을 설치하며, `[export]`는 ONNX 검사에 필요한 패키지를 포함한다.
-기존 환경도 `python -m pip install -e '.[export]'`로 업데이트한다.
-영상 저장이 필요하면 `python -m pip install imageio imageio-ffmpeg`를 추가 실행한다.
+위 설치 명령은 mjlab 1.2.0, MuJoCo 3.5.0, mujoco-warp 3.5.0, ONNX Runtime 1.22.0을 설치하며, `[export]`는 ONNX 검사에 필요한 패키지를 포함한다.
+MuJoCo도 함께 고정해야 한다. 설치 중 들어왔던 MuJoCo 4.0.1에는 `mjENBL_MULTICCD`가 없어 mujoco-warp 3.5.0을 import할 수 없었다.
+또한 mjlab 1.2.0의 패키지 의존성에서 누락된 SciPy를 함께 설치한다. 지형 모듈을 통해 설정 로딩 시에도 필요하다.
+위 명령은 MuJoCo 버전과 SciPy를 명시해 설치하고, C++ 빌드 전에 의존성·import를 검사한다.
+기존 환경도 같은 명령으로 업데이트한다. 이미 MuJoCo 4.x가 설치됐다면 아래 [설치 중단 후 복구](#설치-중단-후-복구)를 먼저 따른다.
+영상 저장이 필요하면 `python -I -m pip install imageio imageio-ffmpeg`를 추가 실행한다.
 이후 명령은 **활성화한 mjlab 환경과 저장소 루트**에서 실행한다.
 
 ### 실기용 SDK·C++ 빌드
 
 sim2sim만 사용하면 이 절은 생략한다. C++ 빌드는 `x86_64`와 `aarch64`를 지원하며 ONNX Runtime은 저장소에 포함되어 있다.
 실기 PC에도 위 Python 환경과 저장소를 준비하고, 변경한 소스·정책 파일을 함께 반영한다.
+`unitree-a2-pc2`의 기존 `~/.local/unitree_sdk2-21d0a3b`를 사용한다면 SDK 재설치를 생략하고
+아래 접기 영역의 configure·빌드 명령을 사용한다.
 
 ```bash
 # Unitree SDK2 설치. 이미 같은 SDK가 설치되어 있으면 생략한다.
@@ -84,6 +93,8 @@ bash scripts/sim2real.sh --check-policy
 
 `ldd`에 `not found`가 없어야 한다. `--check-policy`는 ONNX 입출력을 검사하고 **DDS 연결 없이 종료**한다.
 `Policy check complete (no DDS channels opened).`가 정상 결과다.
+`bad file: .../config/deploy.yaml`이 나오면 예전 실행 파일이 남아 있는 것이다.
+현재 설정은 `deploy/configs/a2/config.py`이므로 위 configure·빌드를 다시 수행한다. 이 오류는 DDS 연결 전에 발생한다.
 
 <details>
 <summary>기존 unitree-a2-pc2의 사용자 경로 SDK를 쓰는 경우</summary>
@@ -99,6 +110,8 @@ cmake -S deploy/robots/a2 -B deploy/robots/a2/build \
   -DCMAKE_PREFIX_PATH="$HOME/.local/unitree_sdk2-21d0a3b" \
   -DCMAKE_EXE_LINKER_FLAGS=-Wl,--disable-new-dtags
 cmake --build deploy/robots/a2/build -j2
+ctest --test-dir deploy/robots/a2/build --output-on-failure
+bash scripts/sim2real.sh --check-policy
 ```
 
 마지막 옵션은 ROS/SLAM의 `LD_LIBRARY_PATH`보다 빌드에 사용한 라이브러리 경로를 우선한다.
@@ -263,13 +276,47 @@ C++ 관련 테스트는 위의 `BUILD_OFFLINE_TESTS=ON` 빌드 후 실행한다.
 
 | 증상 | 확인할 항목 |
 | --- | --- |
+| `bad file: .../config/deploy.yaml` | 오래된 실행 파일. [실기용 SDK·C++ 빌드](#실기용-sdkc-빌드)에 따라 configure·빌드 후 `--check-policy` 재실행 |
+| `AttributeError: ... mjENBL_MULTICCD` | MuJoCo 4.x와 mujoco-warp 3.5.0 충돌. 아래 [설치 중단 후 복구](#설치-중단-후-복구)로 4.x 분리 패키지 제거 후 3.5.0 재설치 |
+| `ModuleNotFoundError: No module named 'scipy'` | mjlab 환경에서 `python -I -m pip install scipy` 후 import 검사 재실행 |
+| Conda/PyPI DNS 조회·다운로드 실패 | `Could not resolve host`, `Temporary failure in name resolution`이면 인터넷·DNS·프록시 설정 확인. 접속 가능한 터미널에서 실패한 단계부터 재실행. 캐시가 불완전하면 오프라인 설치로 해결되지 않음 |
 | `a2_ctrl` 실행 파일 없음 | [설치](#설치)의 SDK·C++ 빌드 수행 |
-| Python 설정 import 실패 | mjlab 환경에서 `python -m pip install -e . --no-deps`; CMake의 `Python3_EXECUTABLE` 확인 |
+| Python 설정 import 실패 | mjlab 환경에서 위 Python 설치·import 검사 재실행. `--no-deps`는 누락 의존성을 설치하지 못한다. CMake의 `Python3_EXECUTABLE` 확인 |
 | 실행 시 다른 Python 필요 | `A2_PYTHON=/path/to/mjlab/bin/python bash scripts/sim2real.sh --check-policy` |
 | `ldd`에 `not found` 또는 DDS 라이브러리 충돌 | SDK 설치·`sudo ldconfig`·실제 로딩 경로 확인. 사용자 설치는 위 접기 영역 참고 |
 | 정책 크기 불일치 | ONNX 입출력·관측 크기/history·관절 개수가 같은 학습 설정인지 확인 |
 | NIC 없음 | `ip -br link`와 `NetworkCfg.interface` 확인. `--check-policy`는 통신 연결을 검사하지 않음 |
-| Isaac Python 경로 혼입 | `scripts/*.sh` 사용. Python 직접 실행 시 `env -u PYTHONPATH PYTHONNOUSERSITE=1` 추가 |
+| ROS/Isaac Python 경로 혼입 | pip·외부 패키지 import 검사 시 `python -I` 사용. 저장소 모듈 직접 실행 시 `env -u PYTHONPATH PYTHONNOUSERSITE=1 python ...` 사용 |
+
+### 설치 중단 후 복구
+
+Conda 환경까지 생성했다면 다시 만들지 않고 `conda activate mjlab` 후 저장소 루트에서 이어간다.
+**패키지 설치 → import 검사 → C++ configure·빌드 → 오프라인 검사** 순서로 진행하고, 실패한 단계가 해결되기 전에는 다음 단계로 넘어가지 않는다.
+
+MuJoCo 4.x를 설치했던 환경은 `mujoco-core`, `mujoco-studio`, `mujoco-studio-wasm`이 남아 있을 수 있다.
+이 패키지들이 사용하는 `mujoco/` 파일이 겹치므로 분리 패키지를 제거한 **뒤에** 3.5.0을 재설치한다.
+다음 명령은 교체용 wheel 다운로드에 성공한 경우에만 기존 패키지를 제거하며, 오류가 나면 중단한다.
+
+```bash
+conda activate mjlab
+cd "$HOME/control_ws/edu_rl_mjlab"  # 실제 저장소 경로로 변경
+(
+  set -e
+  a2_mujoco_wheel_dir="$(mktemp -d /tmp/a2-mujoco-3.5.0-XXXXXX)"
+  python -I -m pip download --no-deps --only-binary=:all: \
+    --dest "$a2_mujoco_wheel_dir" 'mujoco==3.5.0'
+  python -I -m pip uninstall -y mujoco mujoco-core mujoco-studio mujoco-studio-wasm
+  python -I -m pip install --no-index --no-deps "$a2_mujoco_wheel_dir"/mujoco-*.whl
+  python -I -m pip install -e '.[export]' 'mujoco==3.5.0' scipy
+  python -I -m pip check
+  python -I -c "from mjlab.envs import mdp; import scipy.interpolate; import onnxruntime; import onnx"
+  rm -- "$a2_mujoco_wheel_dir"/mujoco-*.whl
+  rmdir -- "$a2_mujoco_wheel_dir"
+)
+```
+
+검사가 통과하면 [실기용 SDK·C++ 빌드](#실기용-sdkc-빌드)부터 이어간다.
+`--check-policy`의 성공은 정책·설정 로딩 확인이며, 로봇 NIC나 실제 보행까지 검증한 것은 아니다.
 
 실기 배포 시 `deploy/configs/a2/`, `mjlab_wrapper/`, 정책 파일도 함께 옮기고 실행 파일은 `deploy/robots/a2/build/` 또는 `bin/`에 둔다.
 `networks/.../params/`는 학습 당시 기록이며 실행 설정이 아니다. 체크포인트 출처·모델 정보는 같은 폴더의 `provenance.json`, `source_model.json`에서 확인한다.
