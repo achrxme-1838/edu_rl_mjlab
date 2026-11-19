@@ -124,14 +124,15 @@ def run_rollout(env, policy, *, steps, terrain, course, command, video=None):
         "passed": bool(passed),
         "failure": failure,
         "terrain": terrain,
-        "checkpoint": str(policy.checkpoint),
-        "checkpoint_sha256": hashlib.sha256(policy.checkpoint.read_bytes()).hexdigest(),
-        "checkpoint_iteration": policy.iteration,
+        "policy_path": str(policy.policy_path),
+        "policy_sha256": hashlib.sha256(policy.policy_path.read_bytes()).hexdigest(),
+        "policy_format": "onnx",
+        "policy_providers": policy.session.get_providers(),
         "device": str(env.device),
         "seed": raw.cfg.seed,
         "versions": {
             name: version(name)
-            for name in ("torch", "mjlab", "mujoco", "mujoco-warp", "warp-lang")
+            for name in ("torch", "onnxruntime", "mjlab", "mujoco", "mujoco-warp", "warp-lang")
         },
         "command": list(command),
         "requested_steps": steps,

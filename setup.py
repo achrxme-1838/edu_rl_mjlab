@@ -6,6 +6,7 @@ from setuptools import find_packages, setup
 INSTALL_REQUIRES = [
     "mjlab==1.2.0",
     "mujoco-warp==3.5.0",
+    "onnxruntime==1.22.0",  # Match the bundled C++ ONNX Runtime.
 ]
 
 # Installation operation

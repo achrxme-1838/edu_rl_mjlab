@@ -119,13 +119,8 @@ def validate(cfg):
         raise ValueError("network.interface must be a string without NUL")
     if type(cfg.network.domain_id) is not int or not 0 <= cfg.network.domain_id <= 232:
         raise ValueError("network.domain_id must be an integer in 0..232")
-    for path in (cfg.policy.checkpoint, cfg.policy.onnx):
-        if not isinstance(path, str) or not path.strip():
-            raise ValueError("Policy paths must be nonempty strings")
-    if not cfg.policy.hidden_dims or any(
-        type(x) is not int or x <= 0 for x in cfg.policy.hidden_dims
-    ):
-        raise ValueError("policy.hidden_dims must contain positive integers")
+    if not isinstance(cfg.policy.onnx, str) or not cfg.policy.onnx.strip():
+        raise ValueError("policy.onnx must be a nonempty string")
     return cfg
 
 

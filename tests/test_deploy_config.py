@@ -65,26 +65,28 @@ class SharedConfigTest(unittest.TestCase):
             with self.subTest(modified=modified), self.assertRaises(ValueError):
                 validate(modified)
 
-    def test_actor_uses_dimensions_from_selected_config(self):
+    def test_onnx_uses_selected_config_without_hidden_dimensions(self):
         import torch
         from torch import nn
         from src.tasks.velocity.config.a2.policy import EduA2Policy
 
         for history, dims in ((1, (45, 24, 12)), (3, (135, 32, 16, 12))):
             with self.subTest(history=history), tempfile.TemporaryDirectory() as directory:
-                checkpoint = Path(directory) / "custom.pt"
+                model_path = Path(directory) / "custom.onnx"
                 config_path = Path(directory) / "config.py"
-                # Independent actors with different input widths, hidden widths
-                # and depths exercise the actual checkpoint-loading path.
+                # Different widths, depths and activation prove the ONNX graph
+                # determines the architecture, independently of deployment cfg.
                 layers = []
                 for index, (size_in, size_out) in enumerate(zip(dims, dims[1:])):
                     layers.append(nn.Linear(size_in, size_out))
                     if index < len(dims) - 2:
-                        layers.append(nn.ELU())
+                        layers.append(nn.Tanh())
                 reference = nn.Sequential(*layers).eval()
-                torch.save({"model_state_dict": {
-                    f"actor.{key}": value for key, value in reference.state_dict().items()
-                }}, checkpoint)
+                obs = torch.linspace(-1, 1, dims[0]).reshape(1, dims[0])
+                torch.onnx.export(
+                    reference, obs, str(model_path), input_names=["obs"],
+                    output_names=["actions"], opset_version=17, dynamo=False,
+                )
                 config_path.write_text(
                     "from dataclasses import replace\n"
                     "from deploy.configs.a2.config import A2DeployCfg as BaseCfg\n"
@@ -92,21 +94,16 @@ class SharedConfigTest(unittest.TestCase):
                     "    base = BaseCfg()\n"
                     "    return replace(base,\n"
                     f"        observations=replace(base.observations, history_length={history}),\n"
-                    f"        policy=replace(base.policy, checkpoint={str(checkpoint)!r}, "
-                    f"hidden_dims={dims[1:-1]!r}))\n"
+                    f"        policy=replace(base.policy, onnx={str(model_path)!r}))\n"
                 )
                 cfg = load_config(config_path)
                 actor = EduA2Policy(deploy_cfg=cfg)
-                self.assertEqual(cfg.actor_dims, dims)
-                obs = torch.linspace(-1, 1, 2 * dims[0]).reshape(2, dims[0])
-                torch.testing.assert_close(actor(obs), reference(obs), rtol=0, atol=0)
-                # Config changes must not silently reshape incompatible weights.
-                for incompatible in (
-                    replace(cfg, observations=replace(cfg.observations, history_length=history + 1)),
-                    replace(cfg, policy=replace(cfg.policy, hidden_dims=(dims[1] + 1,))),
-                ):
-                    with self.assertRaisesRegex(RuntimeError, "size mismatch"):
-                        EduA2Policy(deploy_cfg=incompatible)
+                torch.testing.assert_close(actor(obs), reference(obs), rtol=1e-5, atol=1e-6)
+                incompatible = replace(
+                    cfg, observations=replace(cfg.observations, history_length=history + 1)
+                )
+                with self.assertRaisesRegex(ValueError, "input 'obs'"):
+                    EduA2Policy(deploy_cfg=incompatible)
 
     def test_field_aliases_preserve_mjlab_observations_and_history(self):
         import torch

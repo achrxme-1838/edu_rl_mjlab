@@ -14,9 +14,8 @@ from mjlab_wrapper import mdp
 
 @dataclass(frozen=True)
 class PolicyCfg:
-    checkpoint: str = "networks/01_EDU_A2_STAIR/model_10001.pt"
+    # Shared by sim2sim and sim2real; the ONNX file contains the network structure.
     onnx: str = "networks/01_EDU_A2_STAIR/policy.onnx"
-    hidden_dims: tuple[int, ...] = (512, 256, 128)  # ELU, no observation normalization.
 
 
 @dataclass(frozen=True)
@@ -159,11 +158,6 @@ class A2DeployCfg:
     @property
     def action_dim(self):
         return len(self.joints.names)
-
-    @property
-    def actor_dims(self):
-        """Layer widths derived from the configured observations, policy and joints."""
-        return (self.observations.dimension, *self.policy.hidden_dims, self.action_dim)
 
     @property
     def control_dt(self):

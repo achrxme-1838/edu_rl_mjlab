@@ -18,9 +18,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="Python file defining A2DeployCfg")
     parser.add_argument(
-        "--checkpoint",
+        "--onnx",
         type=Path,
         default=None,
+        help="Override PolicyCfg.onnx with an exported ONNX policy",
     )
     parser.add_argument("--terrain", choices=("flat", "stairs"), default="stairs")
     parser.add_argument(
@@ -36,7 +37,8 @@ def main():
     )
     parser.add_argument("--stair-count", type=int, default=5)
     parser.add_argument(
-        "--device", default=None, help="cpu or cuda:0 (default: CUDA if available)"
+        "--device", default=None,
+        help="Simulation device: cpu or cuda:0 (default: CUDA if available); ONNX inference uses CPU",
     )
     parser.add_argument("--viewer", choices=("auto", "native", "viser"), default="auto")
     parser.add_argument("--headless", action="store_true")
@@ -55,7 +57,7 @@ def main():
     )
     args = parser.parse_args()
     deploy_cfg = load_config(args.config)
-    args.checkpoint = args.checkpoint or resolve_path(deploy_cfg.policy.checkpoint)
+    args.onnx = args.onnx or resolve_path(deploy_cfg.policy.onnx)
     args.command = deploy_cfg.mj.command if args.command is None else args.command
     if not args.headless and (args.check or args.report or args.video):
         parser.error("--check, --report and --video require --headless")
@@ -90,7 +92,7 @@ def main():
         step_width=args.stair_width,
         step_count=args.stair_count,
     )
-    policy = EduA2Policy(args.checkpoint, device=device, deploy_cfg=deploy_cfg)
+    policy = EduA2Policy(args.onnx, device=device, deploy_cfg=deploy_cfg)
     cfg = make_env_cfg(
         terrain=args.terrain,
         command=args.command,
@@ -104,7 +106,7 @@ def main():
     env = RslRlVecEnvWrapper(raw, clip_actions=None)
     try:
         print(
-            f"[INFO] EDU checkpoint: {policy.checkpoint} (iteration {policy.iteration})",
+            f"[INFO] EDU ONNX policy: {policy.policy_path} ({', '.join(policy.session.get_providers())})",
             flush=True,
         )
         if args.headless:

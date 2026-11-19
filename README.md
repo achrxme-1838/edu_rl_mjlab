@@ -2,6 +2,7 @@
 
 EDU A2 정책의 **MuJoCo sim2sim**과 **C++/DDS sim2real** 실행 저장소다.
 A2만 지원하며, 정책 학습과 ONNX export는 `edu_rl_lab`에서 진행한다.
+두 실행 경로 모두 `PolicyCfg.onnx`에 지정한 **동일한 ONNX 정책**을 사용한다.
 
 [설치](#설치) · [Sim2sim](#sim2sim) · [Sim2real](#sim2real) · [설정 변경](#설정-변경) · [검증 및 문제 해결](#검증-및-문제-해결)
 
@@ -45,10 +46,11 @@ mkdir -p "$HOME/control_ws"
 git clone https://github.com/achrxme-1838/edu_rl_mjlab.git "$HOME/control_ws/edu_rl_mjlab"
 cd "$HOME/control_ws/edu_rl_mjlab"
 python -m pip install -e '.[export]'
-python -I -c "from mjlab.envs import mdp; import onnx"
+python -I -c "from mjlab.envs import mdp; import onnxruntime; import onnx"
 ```
 
-`setup.py`가 mjlab 1.2.0과 mujoco-warp 3.5.0을 설치하며, `[export]`는 ONNX 검사에 필요한 패키지를 포함한다.
+`setup.py`가 mjlab 1.2.0, mujoco-warp 3.5.0, ONNX Runtime 1.22.0을 설치하며, `[export]`는 ONNX 검사에 필요한 패키지를 포함한다.
+기존 환경도 `python -m pip install -e '.[export]'`로 업데이트한다.
 영상 저장이 필요하면 `python -m pip install imageio imageio-ffmpeg`를 추가 실행한다.
 이후 명령은 **활성화한 mjlab 환경과 저장소 루트**에서 실행한다.
 
@@ -111,11 +113,12 @@ bash scripts/sim2sim.sh                 # 10 cm × 5단 상승 → 2 m 플랫폼
 bash scripts/sim2sim.sh --terrain flat  # 평지
 bash scripts/sim2sim.sh --viewer viser  # 웹 뷰어
 bash scripts/sim2sim.sh --terrain flat --command 0.3 0 0 \
-  --checkpoint networks/01_EDU_A2_STAIR/model_10001.pt
+  --onnx networks/01_EDU_A2_STAIR/policy.onnx
 ```
 
 기본 명령은 전진 0.4 m/s다. Native 뷰어는 **Space**로 일시정지, **Enter**로 초기화한다.
 웹 뷰어는 Base velocity에서 Enable을 켜고 속도를 조절한다. GUI는 창을 닫을 때까지 실행되며 `--steps`는 headless 전용이다.
+`--device cpu` 또는 `--device cuda:0`는 MuJoCo 시뮬레이션 장치를 선택한다. 정책 추론은 실기와 같은 ONNX Runtime CPU를 사용하며 action을 시뮬레이션 장치로 전달한다.
 
 ```bash
 # 평지 20초 검증
@@ -183,7 +186,7 @@ bash scripts/sim2real.sh
 
 | 목표 | 수정할 설정 | 필요한 작업 |
 | --- | --- | --- |
-| Policy network 변경 | `PolicyCfg.checkpoint`, `onnx`, `hidden_dims` | 같은 학습 결과의 `.pt`·`.onnx` 배치, 학습한 은닉층 구조 지정 |
+| Policy network 변경 | `PolicyCfg.onnx` | 학습한 정책을 ONNX로 export하고 양쪽에서 사용할 파일 경로 지정 |
 | 통신 network 변경 | `NetworkCfg.interface`, `domain_id` | 실제 NIC와 DDS domain 지정. 임시 NIC 변경은 `--network 인터페이스명` |
 | Obs 구성 변경 | `ObservationsCfg` 항목·순서·`func`·`params`·`size`·`scale`·`clip`·`history_length` | 학습 당시 입력 구성과 일치시키거나, 새 구성으로 학습된 정책 준비 |
 | 관절·action 변경 | `JointsCfg`, `ActionsCfg` | 정책 관절 순서·기본 자세·action scale·목표각 clip 지정 |
@@ -192,10 +195,10 @@ bash scripts/sim2real.sh
 
 ### Policy network
 
-- 같은 구조·관측·action 설정의 다른 가중치라면 정책 경로만 바꾼다. 은닉층 크기·개수를 바꾸면 새 구조의 가중치와 `hidden_dims`를 맞춘다.
-- 입력은 `sum(obs.size) × history_length`, 은닉층은 `hidden_dims`, 출력은 관절 개수에서 자동 결정된다. 기본 actor는 `225 → 512 → 256 → 128 → 12`다.
-- Python 로더는 **ELU MLP / 관측 정규화 없음**을 지원한다. 활성화 함수·CNN·RNN·정규화를 바꾸면 [policy.py](src/tasks/velocity/config/a2/policy.py)도 수정한다. 추가 입력·상태가 필요한 모델은 C++ 추론 코드도 변경한다.
-- ONNX는 파일에 포함된 구조를 실행한다. cfg를 바꿔도 기존 가중치나 ONNX가 새 구조로 변환되지는 않는다.
+- `edu_rl_lab`에서 학습한 정책을 ONNX로 export한 뒤 `PolicyCfg.onnx`를 바꾼다. 상대 경로는 저장소 루트 기준이다. 이번 sim2sim 실행만 변경하려면 `--onnx /path/policy.onnx`를 사용한다.
+- 은닉층 크기·개수·활성화 함수는 ONNX 파일에 포함된다. 배포 cfg에 `checkpoint`나 `hidden_dims`를 입력하지 않는다. `.pt`는 원본 가중치와의 검증용 기록으로 남긴다.
+- 입력은 이름 `obs`, float32 `[1, sum(obs.size) × history_length]`이며 출력은 float32 `[1, 관절 개수]` 하나다. 실행 전에 파일의 입출력을 설정과 대조한다. 동적 batch나 RNN의 추가 입력·상태는 현재 지원하지 않는다.
+- 기본 ONNX는 정규화 없는 ELU actor다. 다른 모델의 정규화도 export된 그래프와 학습 당시 관측 처리에 맞춰야 한다. cfg를 바꿔도 기존 ONNX가 새 구조로 변환되지는 않는다.
 
 ### Obs 구성
 
@@ -264,7 +267,7 @@ C++ 관련 테스트는 위의 `BUILD_OFFLINE_TESTS=ON` 빌드 후 실행한다.
 | Python 설정 import 실패 | mjlab 환경에서 `python -m pip install -e . --no-deps`; CMake의 `Python3_EXECUTABLE` 확인 |
 | 실행 시 다른 Python 필요 | `A2_PYTHON=/path/to/mjlab/bin/python bash scripts/sim2real.sh --check-policy` |
 | `ldd`에 `not found` 또는 DDS 라이브러리 충돌 | SDK 설치·`sudo ldconfig`·실제 로딩 경로 확인. 사용자 설치는 위 접기 영역 참고 |
-| 정책 크기 불일치 | `.pt`·`.onnx`·`hidden_dims`·관측 크기/history가 같은 학습 설정인지 확인 |
+| 정책 크기 불일치 | ONNX 입출력·관측 크기/history·관절 개수가 같은 학습 설정인지 확인 |
 | NIC 없음 | `ip -br link`와 `NetworkCfg.interface` 확인. `--check-policy`는 통신 연결을 검사하지 않음 |
 | Isaac Python 경로 혼입 | `scripts/*.sh` 사용. Python 직접 실행 시 `env -u PYTHONPATH PYTHONNOUSERSITE=1` 추가 |
 

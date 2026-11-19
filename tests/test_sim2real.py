@@ -27,7 +27,7 @@ from src.tasks.velocity.config.a2.env_cfgs import (
     POLICY_JOINT_NAMES,
     make_env_cfg,
 )
-from src.tasks.velocity.config.a2.policy import DEFAULT_CHECKPOINT, EduA2Policy
+from src.tasks.velocity.config.a2.policy import EduA2Policy
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_DIR = ROOT / "networks/01_EDU_A2_STAIR"
@@ -101,8 +101,10 @@ class DeploymentConfigTest(unittest.TestCase):
         self.assertEqual(CFG["policy_path"], "networks/01_EDU_A2_STAIR/policy.onnx")
         model = onnx.load(str(POLICY_DIR / "policy.onnx"))
         metadata = {item.key: item.value for item in model.metadata_props}
-        self.assertEqual(metadata["checkpoint_file"], DEFAULT_CHECKPOINT.name)
-        self.assertEqual(metadata["checkpoint_sha256"], hashlib.sha256(DEFAULT_CHECKPOINT.read_bytes()).hexdigest())
+        provenance = json.loads((POLICY_DIR / "provenance.json").read_text())
+        checkpoint = POLICY_DIR / provenance["checkpoint"]
+        self.assertEqual(metadata["checkpoint_file"], checkpoint.name)
+        self.assertEqual(metadata["checkpoint_sha256"], hashlib.sha256(checkpoint.read_bytes()).hexdigest())
         self.assertEqual(metadata["task"], "Edu-A2-Velocity-v0")
         self.assertEqual(metadata["actor_obs_normalization"], "false")
 

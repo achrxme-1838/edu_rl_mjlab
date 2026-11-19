@@ -17,7 +17,6 @@ from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 
-from deploy.configs.a2 import load_config
 from src.assets.robots.unitree_a2.a2_constants import get_a2_robot_cfg
 from src.tasks.registry import list_tasks, load_task
 from src.tasks.velocity.config.a2.env_cfgs import (
@@ -26,7 +25,11 @@ from src.tasks.velocity.config.a2.env_cfgs import (
     StairCourse,
     make_env_cfg,
 )
-from src.tasks.velocity.config.a2.policy import DEFAULT_CHECKPOINT, EduA2Policy
+from src.tasks.velocity.config.a2.policy import DEFAULT_POLICY, EduA2Policy
+
+REFERENCE_CHECKPOINT = DEFAULT_POLICY.parent / json.loads(
+    (DEFAULT_POLICY.parent / "provenance.json").read_text()
+)["checkpoint"]
 
 
 class SnapshotLoader(yaml.SafeLoader):
@@ -53,21 +56,20 @@ class PolicyContractTest(unittest.TestCase):
                 self.assertFalse(task.env_cfg.rewards)
                 self.assertFalse(task.env_cfg.curriculum)
                 self.assertFalse(task.env_cfg.observations["actor"].enable_corruption)
-                self.assertEqual(task.default_checkpoint, DEFAULT_CHECKPOINT)
-                self.assertTrue(task.default_checkpoint.is_file())
+                self.assertEqual(task.default_policy, DEFAULT_POLICY)
+                self.assertTrue(task.default_policy.is_file())
 
     def test_checkpoint_and_training_contract(self):
-        folder = DEFAULT_CHECKPOINT.parent
+        folder = DEFAULT_POLICY.parent
         provenance = json.loads((folder / "provenance.json").read_text())
         self.assertEqual(
-            hashlib.sha256(DEFAULT_CHECKPOINT.read_bytes()).hexdigest(),
+            hashlib.sha256(REFERENCE_CHECKPOINT.read_bytes()).hexdigest(),
             provenance["checkpoint_sha256"],
         )
         source = json.loads((folder / "source_model.json").read_text())
         self.assertEqual(tuple(source["joint_names"]), POLICY_JOINT_NAMES)
         np.testing.assert_allclose(source["default_joint_pos"], DEFAULT_JOINT_POS)
         agent = yaml.safe_load((folder / "params/agent.yaml").read_text())
-        self.assertEqual(agent["policy"]["actor_hidden_dims"], list(load_config().policy.hidden_dims))
         self.assertEqual(agent["policy"]["activation"], "elu")
         self.assertFalse(agent["policy"]["actor_obs_normalization"])
         self.assertIsNone(agent["clip_actions"])
@@ -98,9 +100,9 @@ class PolicyContractTest(unittest.TestCase):
         ):
             self.assertEqual(getattr(motor, name), source_motor[name])
 
-    def test_actor_matches_checkpoint_linear_algebra(self):
+    def test_onnx_matches_source_checkpoint_linear_algebra(self):
         policy = EduA2Policy()
-        state = torch.load(DEFAULT_CHECKPOINT, map_location="cpu", weights_only=True)[
+        state = torch.load(REFERENCE_CHECKPOINT, map_location="cpu", weights_only=True)[
             "model_state_dict"
         ]
         generator = torch.Generator().manual_seed(31)
@@ -113,7 +115,8 @@ class PolicyContractTest(unittest.TestCase):
             )
             if index != indices[-1]:
                 reference = F.elu(reference)
-        torch.testing.assert_close(policy({"actor": obs}), reference, rtol=0, atol=0)
+        actual = torch.cat([policy({"actor": row.unsqueeze(0)}) for row in obs])
+        torch.testing.assert_close(actual, reference, rtol=2e-5, atol=2e-4)
         with self.assertRaises(ValueError):
             policy(torch.zeros(1, policy.observation_dim - 1))
 

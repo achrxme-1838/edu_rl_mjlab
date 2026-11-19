@@ -1,4 +1,4 @@
-"""Registry of A2 playback environments and their checkpoints."""
+"""Registry of A2 playback environments and their ONNX policies."""
 
 from copy import deepcopy
 from dataclasses import dataclass
@@ -10,18 +10,18 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 @dataclass(frozen=True)
 class PlayTask:
     env_cfg: ManagerBasedRlEnvCfg
-    default_checkpoint: Path
+    default_policy: Path
 
 
 _TASKS: dict[str, PlayTask] = {}
 
 
 def register_play_task(
-    task_id: str, env_cfg: ManagerBasedRlEnvCfg, *, default_checkpoint: Path
+    task_id: str, env_cfg: ManagerBasedRlEnvCfg, *, default_policy: Path
 ):
     if task_id in _TASKS:
         raise ValueError(f"Task {task_id!r} is already registered")
-    _TASKS[task_id] = PlayTask(env_cfg, default_checkpoint)
+    _TASKS[task_id] = PlayTask(env_cfg, default_policy)
 
 
 def list_tasks():
