@@ -1,0 +1,7 @@
+{
+  "training_project": "edu_rl_lab",
+  "task": "Edu-A2-Velocity-v0",
+  "run": "2026-11-18_19-25-58_789293_w2_wed_full_to180",
+  "checkpoint": "model_3773.pt",
+  "checkpoint_sha256": "607a60d53eaf25ab5bed378e8a6854c830a6b481fa117bf88f47a7a0bb0a2fa1"
+}
