@@ -89,10 +89,11 @@ int main(int argc, char** argv) {
             result["samples"].push_back(sample);
         }
         // Reject malformed observations before ONNX Runtime reads the input buffer.
+        const auto observation_dim = cfg["observation_dim"].as<std::size_t>();
         bool rejected_short = false, rejected_nan = false;
-        try { env.alg->act({{"obs", std::vector<float>(45)}}); }
+        try { env.alg->act({{"obs", std::vector<float>(observation_dim - 1)}}); }
         catch (const std::runtime_error&) { rejected_short = true; }
-        try { env.alg->act({{"obs", std::vector<float>(225, std::numeric_limits<float>::quiet_NaN())}}); }
+        try { env.alg->act({{"obs", std::vector<float>(observation_dim, std::numeric_limits<float>::quiet_NaN())}}); }
         catch (const std::runtime_error&) { rejected_nan = true; }
         result["rejected_short_observation"] = rejected_short;
         result["rejected_nonfinite_observation"] = rejected_nan;

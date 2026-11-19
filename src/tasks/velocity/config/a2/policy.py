@@ -34,7 +34,7 @@ class EduA2Policy(nn.Module):
                 "Unsupported policy state: this adapter expects no observation normalization."
             )
         self.iteration = payload.get("iter")
-        dims = (self.observation_dim, *cfg.policy.hidden_dims, len(cfg.joints.names))
+        dims = cfg.actor_dims
         layers = []
         for index, (size_in, size_out) in enumerate(zip(dims, dims[1:])):
             layers.append(nn.Linear(size_in, size_out))

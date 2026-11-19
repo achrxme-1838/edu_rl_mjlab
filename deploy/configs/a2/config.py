@@ -157,6 +157,15 @@ class A2DeployCfg:
     real: RealCfg = RealCfg()
 
     @property
+    def action_dim(self):
+        return len(self.joints.names)
+
+    @property
+    def actor_dims(self):
+        """Layer widths derived from the configured observations, policy and joints."""
+        return (self.observations.dimension, *self.policy.hidden_dims, self.action_dim)
+
+    @property
     def control_dt(self):
         return self.mj.timestep * self.mj.decimation
 

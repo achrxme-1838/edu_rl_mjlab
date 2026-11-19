@@ -17,6 +17,7 @@ from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 
+from deploy.configs.a2 import load_config
 from src.assets.robots.unitree_a2.a2_constants import get_a2_robot_cfg
 from src.tasks.registry import list_tasks, load_task
 from src.tasks.velocity.config.a2.env_cfgs import (
@@ -66,7 +67,7 @@ class PolicyContractTest(unittest.TestCase):
         self.assertEqual(tuple(source["joint_names"]), POLICY_JOINT_NAMES)
         np.testing.assert_allclose(source["default_joint_pos"], DEFAULT_JOINT_POS)
         agent = yaml.safe_load((folder / "params/agent.yaml").read_text())
-        self.assertEqual(agent["policy"]["actor_hidden_dims"], [512, 256, 128])
+        self.assertEqual(agent["policy"]["actor_hidden_dims"], list(load_config().policy.hidden_dims))
         self.assertEqual(agent["policy"]["activation"], "elu")
         self.assertFalse(agent["policy"]["actor_obs_normalization"])
         self.assertIsNone(agent["clip_actions"])
@@ -103,17 +104,18 @@ class PolicyContractTest(unittest.TestCase):
             "model_state_dict"
         ]
         generator = torch.Generator().manual_seed(31)
-        obs = torch.randn(32, 225, generator=generator)
+        obs = torch.randn(32, policy.observation_dim, generator=generator)
         reference = obs
-        for index in (0, 2, 4, 6):
+        indices = sorted(int(key.split(".")[1]) for key in state if key.startswith("actor.") and key.endswith(".weight"))
+        for index in indices:
             reference = F.linear(
                 reference, state[f"actor.{index}.weight"], state[f"actor.{index}.bias"]
             )
-            if index != 6:
+            if index != indices[-1]:
                 reference = F.elu(reference)
         torch.testing.assert_close(policy({"actor": obs}), reference, rtol=0, atol=0)
         with self.assertRaises(ValueError):
-            policy(torch.zeros(1, 45))
+            policy(torch.zeros(1, policy.observation_dim - 1))
 
     def test_stock_mass_inertia_and_collision_geometry_unchanged(self):
         stock = Entity(get_a2_robot_cfg()).spec.compile()

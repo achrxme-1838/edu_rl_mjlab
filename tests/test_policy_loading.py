@@ -10,6 +10,7 @@ from pathlib import Path
 
 from onnx import TensorProto, helper
 
+from deploy.configs.a2 import load_config
 ROOT = Path(__file__).resolve().parents[1]
 CONTROLLER = ROOT / "deploy/robots/a2/build/a2_ctrl"
 POLICY_DIR = ROOT / "networks/01_EDU_A2_STAIR"
@@ -102,10 +103,11 @@ class PolicyLoadingTest(unittest.TestCase):
             self.assertNotIn("Waiting for connection", result.stdout)
 
     def test_invalid_onnx_and_wrong_action_count_fail_before_dds(self):
+        observation_dim = load_config().observations.dimension
         graph = helper.make_graph(
             [helper.make_node("Identity", ["obs"], ["actions"])], "wrong_actions",
-            [helper.make_tensor_value_info("obs", TensorProto.FLOAT, [1, 225])],
-            [helper.make_tensor_value_info("actions", TensorProto.FLOAT, [1, 225])],
+            [helper.make_tensor_value_info("obs", TensorProto.FLOAT, [1, observation_dim])],
+            [helper.make_tensor_value_info("actions", TensorProto.FLOAT, [1, observation_dim])],
         )
         wrong_shape = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=8)
         for contents in (b"invalid model", wrong_shape.SerializeToString()):

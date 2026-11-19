@@ -23,7 +23,7 @@ def to_runtime(cfg):
     validate(cfg)
     real = cfg.real
     ids = cfg.joint_ids("real")
-    stand = [0.0] * 12
+    stand = [0.0] * cfg.action_dim
     for index, motor in enumerate(ids):
         stand[motor] = cfg.joints.default_pos[index]
     ranges = {key: getattr(cfg.commands, key) for key in ("lin_vel_x", "lin_vel_y", "ang_vel_z")}
@@ -47,6 +47,7 @@ def to_runtime(cfg):
         "deploy": {
             "policy_path": cfg.policy.onnx,
             "observation_dim": cfg.observations.dimension,
+            "action_dim": cfg.action_dim,
             "joint_names": cfg.joints.names,
             "joint_ids_map": ids,
             "step_dt": cfg.control_dt,
@@ -58,7 +59,8 @@ def to_runtime(cfg):
                 "speed_control": {"linear": asdict(cfg.commands.linear), "angular": asdict(cfg.commands.angular)},
             }},
             "actions": {"JointPositionAction": {
-                "clip": [cfg.actions.clip] * 12, "scale": [cfg.actions.scale] * 12,
+                "clip": [cfg.actions.clip] * cfg.action_dim,
+                "scale": [cfg.actions.scale] * cfg.action_dim,
                 "offset": cfg.joints.default_pos, "joint_ids": None,
             }},
             "observations": observations,
@@ -68,7 +70,7 @@ def to_runtime(cfg):
             "_": {"Passive": {"id": 1}, "FixStand": {"id": 2},
                   "Velocity": {"id": 3, "type": "RLBase"}, "LowStand": {"id": 4, "type": "FixStand"}},
             "Passive": {"transitions": {"FixStand": "start.on_pressed + !A", "LowStand": "A.on_pressed"},
-                        "mode": [1] * 12, "kd": real.passive_kd},
+                        "mode": [1] * cfg.action_dim, "kd": real.passive_kd},
             "FixStand": fixed_pose(stand, {"LowStand": "A.on_pressed", "Velocity": "start.on_pressed + !A"}),
             "Velocity": {"transitions": {"FixStand": "start.on_pressed + !A", "LowStand": "A.on_pressed"}},
             "LowStand": fixed_pose(real.low_stand_pos, {"FixStand": "start.on_pressed + !A"}),

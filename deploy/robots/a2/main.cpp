@@ -42,8 +42,9 @@ int main(int argc, char** argv)
             param::repo_dir, param::deploy_config["policy_path"].as<std::string>());
         isaaclab::OrtRunner probe(model.string());
         const auto actions = probe.act({{"obs", std::vector<float>(param::deploy_config["observation_dim"].as<std::size_t>(), 0.0f)}});
-        if (actions.size() != 12 || !std::all_of(actions.begin(), actions.end(), [](float x) { return std::isfinite(x); }))
-            throw std::runtime_error("A2 policy must produce 12 finite actions");
+        const auto action_dim = param::deploy_config["action_dim"].as<std::size_t>();
+        if (actions.size() != action_dim || !std::all_of(actions.begin(), actions.end(), [](float x) { return std::isfinite(x); }))
+            throw std::runtime_error("A2 policy must produce " + std::to_string(action_dim) + " finite actions");
         spdlog::info("Policy ready: {}", model.string());
         if (vm.count("check-policy")) {
             std::cout << "Policy check complete (no DDS channels opened).\n";

@@ -37,6 +37,7 @@ class SharedConfigTest(unittest.TestCase):
             "joint_pos_rel", "joint_vel_rel", "last_action",
         ])
         self.assertEqual(runtime["deploy"]["observation_dim"], 225)
+        self.assertEqual(runtime["deploy"]["action_dim"], 12)
         self.assertEqual(runtime["deploy"]["observations"]["velocity_commands"]["func"], "velocity_commands")
         self.assertEqual(runtime["deploy"]["observations"]["velocity_commands"]["params"], {"command_name": "base_velocity"})
         self.assertEqual(runtime["deploy"]["joint_ids_map"], [3, 0, 9, 6, 4, 1, 10, 7, 5, 2, 11, 8])
@@ -63,6 +64,49 @@ class SharedConfigTest(unittest.TestCase):
         for modified in invalid:
             with self.subTest(modified=modified), self.assertRaises(ValueError):
                 validate(modified)
+
+    def test_actor_uses_dimensions_from_selected_config(self):
+        import torch
+        from torch import nn
+        from src.tasks.velocity.config.a2.policy import EduA2Policy
+
+        for history, dims in ((1, (45, 24, 12)), (3, (135, 32, 16, 12))):
+            with self.subTest(history=history), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "custom.pt"
+                config_path = Path(directory) / "config.py"
+                # Independent actors with different input widths, hidden widths
+                # and depths exercise the actual checkpoint-loading path.
+                layers = []
+                for index, (size_in, size_out) in enumerate(zip(dims, dims[1:])):
+                    layers.append(nn.Linear(size_in, size_out))
+                    if index < len(dims) - 2:
+                        layers.append(nn.ELU())
+                reference = nn.Sequential(*layers).eval()
+                torch.save({"model_state_dict": {
+                    f"actor.{key}": value for key, value in reference.state_dict().items()
+                }}, checkpoint)
+                config_path.write_text(
+                    "from dataclasses import replace\n"
+                    "from deploy.configs.a2.config import A2DeployCfg as BaseCfg\n"
+                    "def A2DeployCfg():\n"
+                    "    base = BaseCfg()\n"
+                    "    return replace(base,\n"
+                    f"        observations=replace(base.observations, history_length={history}),\n"
+                    f"        policy=replace(base.policy, checkpoint={str(checkpoint)!r}, "
+                    f"hidden_dims={dims[1:-1]!r}))\n"
+                )
+                cfg = load_config(config_path)
+                actor = EduA2Policy(deploy_cfg=cfg)
+                self.assertEqual(cfg.actor_dims, dims)
+                obs = torch.linspace(-1, 1, 2 * dims[0]).reshape(2, dims[0])
+                torch.testing.assert_close(actor(obs), reference(obs), rtol=0, atol=0)
+                # Config changes must not silently reshape incompatible weights.
+                for incompatible in (
+                    replace(cfg, observations=replace(cfg.observations, history_length=history + 1)),
+                    replace(cfg, policy=replace(cfg.policy, hidden_dims=(dims[1] + 1,))),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "size mismatch"):
+                        EduA2Policy(deploy_cfg=incompatible)
 
     def test_field_aliases_preserve_mjlab_observations_and_history(self):
         import torch

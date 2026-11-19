@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -17,6 +18,7 @@ import mujoco
 import onnx
 import torch
 import yaml
+from onnx import TensorProto, helper, numpy_helper
 
 from deploy.configs.a2 import DEFAULT_CONFIG, load_config
 from deploy.configs.a2.runtime import to_runtime
@@ -128,6 +130,57 @@ class DeploymentConfigTest(unittest.TestCase):
     PROBE.is_file(), "Build a2_policy_probe with -DBUILD_OFFLINE_TESTS=ON first"
 )
 class CppDeploymentTest(unittest.TestCase):
+    def test_probe_uses_configured_history_dimensions(self):
+        base = load_config()
+        for history in (1, 3):
+            with self.subTest(history=history), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                cfg = replace(base, observations=replace(base.observations, history_length=history))
+                observation_dim, action_dim = cfg.observations.dimension, cfg.action_dim
+                model_path = folder / "policy.onnx"
+                graph = helper.make_graph(
+                    [helper.make_node("MatMul", ["obs", "weight"], ["actions"])],
+                    "custom_dimensions",
+                    [helper.make_tensor_value_info("obs", TensorProto.FLOAT, [1, observation_dim])],
+                    [helper.make_tensor_value_info("actions", TensorProto.FLOAT, [1, action_dim])],
+                    initializer=[numpy_helper.from_array(
+                        np.zeros((observation_dim, action_dim), dtype=np.float32), name="weight"
+                    )],
+                )
+                onnx.save(helper.make_model(
+                    graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=8
+                ), model_path)
+                config_path = folder / "config.py"
+                config_path.write_text(
+                    "from dataclasses import replace\n"
+                    "from deploy.configs.a2.config import A2DeployCfg as BaseCfg\n"
+                    "def A2DeployCfg():\n"
+                    "    base = BaseCfg()\n"
+                    "    return replace(base,\n"
+                    f"        observations=replace(base.observations, history_length={history}),\n"
+                    f"        policy=replace(base.policy, onnx={str(model_path)!r}))\n"
+                )
+                inputs, outputs = folder / "frames.yaml", folder / "output.yaml"
+                inputs.write_text(yaml.safe_dump([{
+                    "q_sdk": [0.0] * action_dim, "dq_sdk": [0.0] * action_dim,
+                    "quat_wxyz": [1.0, 0.0, 0.0, 0.0], "gyro": [0.0] * 3,
+                    "command": [0.0] * 3, "reset": True,
+                }]))
+                subprocess.run(
+                    [str(PROBE), str(ROOT), str(model_path), str(inputs), str(outputs), str(config_path)],
+                    check=True, capture_output=True, text=True, timeout=30,
+                )
+                result = yaml.safe_load(outputs.read_text())
+                self.assertEqual(len(result["samples"][0]["obs"]), observation_dim)
+                self.assertEqual(result["samples"][0]["raw_action"], [0.0] * action_dim)
+                self.assertTrue(result["rejected_short_observation"])
+                self.assertTrue(result["rejected_nonfinite_observation"])
+                checked = subprocess.run(
+                    [str(PROBE.with_name("a2_ctrl")), "--config", str(config_path), "--check-policy"],
+                    check=True, capture_output=True, text=True, timeout=30,
+                )
+                self.assertIn("no DDS channels opened", checked.stdout)
+
     def test_sensor_history_onnx_and_motor_targets_match_python(self):
         rng = np.random.default_rng(812)
         ids = [SDK_JOINTS.index(name) for name in POLICY_JOINT_NAMES]
@@ -245,7 +298,7 @@ class CppDeploymentTest(unittest.TestCase):
                 history.append(term.copy())
             obs = np.concatenate([np.concatenate(list(h)) for h in histories])
             np.testing.assert_allclose(actual["obs"], obs, rtol=2e-5, atol=2e-5)
-            action = actor(torch.tensor(obs).reshape(1, 225)).numpy()[0]
+            action = actor(torch.tensor(obs).reshape(1, actor.observation_dim)).numpy()[0]
             np.testing.assert_allclose(
                 actual["raw_action"], action, rtol=2e-5, atol=2e-4
             )
