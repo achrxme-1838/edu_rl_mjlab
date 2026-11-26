@@ -108,6 +108,9 @@ cmake --build deploy/robots/a2/build -j2
 
 ## Sim2sim
 
+두 실행 스크립트는 `bash scripts/sim2sim.sh`, `bash scripts/sim2real.sh`로 실행한다.
+`source` 또는 `.`로 실행해도 프로그램과 셸 옵션을 서브셸에 격리하므로, 종료 후 원래 터미널 셸로 돌아온다.
+
 ```bash
 bash scripts/sim2sim.sh                 # 10 cm × 5단 상승 → 2 m 플랫폼 → 하강
 bash scripts/sim2sim.sh --terrain flat  # 평지
