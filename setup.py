@@ -5,7 +5,9 @@ from setuptools import find_packages, setup
 # Minimum dependencies required prior to installation
 INSTALL_REQUIRES = [
     "mjlab==1.2.0",
+    "mujoco==3.5.0",  # Match mujoco-warp; newer APIs remove mjENBL_MULTICCD.
     "mujoco-warp==3.5.0",
+    "scipy",  # mjlab 1.2.0 imports SciPy but omits it from its dependencies.
     "onnxruntime==1.22.0",  # Match the bundled C++ ONNX Runtime.
 ]
 
